@@ -1,0 +1,58 @@
+REM ============================================================
+REM Script 4: PSEUDO-HUMANLIKE JITTER (extended, harder negative)
+REM Purpose: "sophisticated evasion attempt" signature.
+REM Delay is varied per chunk of text to loosely mimic pauses at
+REM word/punctuation boundaries, sustained across two full
+REM paragraphs rather than one short line.
+REM What still gives it away to a good model, even at this
+REM length:
+REM  - No backspace/correction events anywhere in either
+REM    paragraph (real humans produce a nontrivial correction
+REM    rate over this much text).
+REM  - Delay depends only on position in the script, not on
+REM    which specific keys/bigrams are being pressed.
+REM  - Delay values are drawn from a small handful of discrete
+REM    presets, repeating across both paragraphs, rather than a
+REM    continuous, ever-changing distribution.
+REM  - Zero variance in "hold time" per key throughout, since
+REM    HID injection sends keydown+keyup as one atomic unit.
+REM ============================================================
+DELAY 500
+GUI r
+DELAY 300
+STRINGLN notepad
+DELAY 800
+
+DEFAULT_STRING_DELAY 45
+STRING Behavioural biometrics,
+DEFAULT_STRING_DELAY 110
+STRING like typing rhythm,
+DEFAULT_STRING_DELAY 60
+STRING can help tell
+DEFAULT_STRING_DELAY 95
+STRING a script from a person.
+DEFAULT_STRING_DELAY 40
+STRING Every keystroke carries
+DEFAULT_STRING_DELAY 130
+STRING a small trace of the
+DEFAULT_STRING_DELAY 60
+STRING hand, the habit, and
+DEFAULT_STRING_DELAY 95
+STRINGLN the moment behind it, even when nobody is watching the screen.
+
+DEFAULT_STRING_DELAY 45
+STRING Building a good detector
+DEFAULT_STRING_DELAY 110
+STRING means collecting plenty
+DEFAULT_STRING_DELAY 60
+STRING of honest examples
+DEFAULT_STRING_DELAY 95
+STRING from real people typing
+DEFAULT_STRING_DELAY 40
+STRING naturally, and pairing them
+DEFAULT_STRING_DELAY 130
+STRING with clearly labeled
+DEFAULT_STRING_DELAY 60
+STRING synthetic sessions like
+DEFAULT_STRING_DELAY 95
+STRINGLN this one, so the model learns the real difference instead of a shortcut.

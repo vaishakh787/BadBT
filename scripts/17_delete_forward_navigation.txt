@@ -1,0 +1,44 @@
+REM ============================================================
+REM Script 17: FORWARD-DELETE NAVIGATION MIX (non-malicious)
+REM Purpose: exercises the literal DELETE key (forward-delete)
+REM rather than BACKSPACE — both currently feed the same
+REM backspace_ratio feature (VK_BACK + VK_DELETE), but they're
+REM reached via different navigation patterns and are worth
+REM covering separately for feature depth.
+REM Behavioural signature:
+REM  - DELETE is always preceded by a HOME jump, never used
+REM    "in place" the way a human forward-deleting mid-word
+REM    typically would (cursor already there from arrow-key
+REM    correction, not from jumping to line start every time).
+REM  - DELETE bursts are exact-count REPEAT blocks (perfectly
+REM    uniform interval, same signature class as Script 14's
+REM    BACKSPACE burst) rather than single deliberate presses.
+REM  - No BACKSPACE at all in this script — isolates the DELETE
+REM    key's timing signature from BACKSPACE's.
+REM ============================================================
+DELAY 500
+GUI r
+DELAY 300
+STRINGLN notepad
+DELAY 800
+
+STRINGLN XXXXX This line has a junk prefix that will be forward-deleted after jumping to the start of the line.
+DELAY 500
+HOME
+DELAY 200
+DELETE
+REPEAT 5
+DELAY 300
+STRINGLN This second line will lose its last twelve characters using forward-delete from a mid-line position instead.
+DELAY 500
+UP
+DELAY 150
+END
+DELAY 150
+LEFT
+REPEAT 11
+DELAY 300
+DELETE
+REPEAT 11
+DELAY 300
+STRING short end

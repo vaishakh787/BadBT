@@ -1,0 +1,76 @@
+REM ============================================================
+REM Script 16: HUMAN-LIKE CORRECTION PATTERN (harder negative)
+REM Purpose: "sophisticated evasion attempt" signature for
+REM backspace_ratio — same spirit as Script 4's pseudo-humanlike
+REM jitter, but applied to corrections instead of plain typing.
+REM Behavioural signature — what still gives it away:
+REM  - Hesitation delay before each BACKSPACE is drawn from a
+REM    small fixed set (250/400/600ms) rather than a continuous
+REM    distribution, and doesn't depend on how "bad" the typo
+REM    actually was — real humans pause longer for a multi-word
+REM    slip than a single dropped letter.
+REM  - Backspace counts vary (1, 2, 3, 5) but always exactly
+REM    match the wrong fragment length — no overshoot, no
+REM    partial re-deletion, no re-typo on the retry, all of
+REM    which occur regularly in genuine human correction.
+REM  - Zero variance in per-backspace hold time within a burst,
+REM    since HID injection sends keydown+keyup as one atomic
+REM    unit regardless of how many characters are being removed.
+REM ============================================================
+DELAY 500
+GUI r
+DELAY 300
+STRINGLN notepad
+DELAY 800
+
+DEFAULT_STRING_DELAY 55
+STRING I wnat
+DELAY 400
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+STRING want
+STRING  to dscribe
+DELAY 600
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+STRING describe
+STRING  how typing realy
+DELAY 250
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+STRING really
+STRING  looks when a persno
+DELAY 400
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+STRING person
+STRINGLN  is typing on their own, mistakes and all.
+
+DELAY 800
+DEFAULT_STRING_DELAY 55
+STRING Every now and then a wrod
+DELAY 600
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+STRING word
+STRING  gets typoed and noticed a moment
+DELAY 250
+BACKSPACE
+STRING t
+STRINGLN  later than the mistake itself.

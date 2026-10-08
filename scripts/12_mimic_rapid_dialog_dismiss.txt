@@ -1,0 +1,33 @@
+REM ============================================================
+REM Script F: RAPID DIALOG-DISMISS MIMIC (non-malicious)
+REM What real attacks do that this copies: some payloads trigger
+REM a system dialog (a save prompt, a permission prompt) and then
+REM rapidly dismiss or click through it before a user can react.
+REM This script triggers Notepad's own "Save As" dialog and then
+REM immediately cancels it with ESCAPE - nothing is ever saved to
+REM disk, no filename is committed, no permission prompt of any
+REM kind is touched.
+REM What THIS script actually does, step by step:
+REM   1. Opens Notepad via the Run dialog.
+REM   2. Types one labeled sentence.
+REM   3. Presses CTRL+S, which opens the "Save As" dialog since
+REM      the file has never been saved.
+REM   4. Types a placeholder filename into that dialog's filename
+REM      field (this text goes nowhere, since step 5 cancels it).
+REM   5. Presses ESCAPE immediately, closing the dialog with no
+REM      file written.
+REM No shell, no network, no file is created or overwritten -
+REM ESCAPE cancels the save every time.
+REM ============================================================
+DELAY 500
+GUI r
+DELAY 300
+STRINGLN notepad
+DELAY 800
+STRING This sentence exists only to give Notepad something to try to save before the save dialog is cancelled.
+DELAY 500
+CTRL s
+DELAY 700
+STRING this_filename_is_never_used
+DELAY 300
+ESCAPE

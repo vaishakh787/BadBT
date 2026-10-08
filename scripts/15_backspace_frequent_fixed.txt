@@ -1,0 +1,61 @@
+REM ============================================================
+REM Script 15: FREQUENT BACKSPACE, FIXED INTERVAL (non-malicious)
+REM Purpose: "scripted typo simulator" signature — corrections
+REM happen often (high backspace_ratio) but on a mechanically
+REM regular schedule, unlike a real person's irregular error rate.
+REM Behavioural signature:
+REM  - A wrong-fragment / BACKSPACE(es) / correct-fragment cycle
+REM    repeats roughly every DEFAULT_STRING_DELAY-paced clause,
+REM    at near-identical spacing throughout the whole session —
+REM    low variance in time-between-corrections, which is the
+REM    opposite of genuine human typo timing.
+REM  - Backspace counts per cycle are exact (1, 4, 7...) with no
+REM    over-correction or re-correction — real humans sometimes
+REM    delete too much and retype part of it again.
+REM  - Every correction is immediately followed by resumed
+REM    typing at the same DEFAULT_STRING_DELAY as everything
+REM    else — no extra hesitation before or after deleting.
+REM ============================================================
+DELAY 500
+GUI r
+DELAY 300
+STRINGLN notepad
+DELAY 800
+
+DEFAULT_STRING_DELAY 60
+STRING Ths
+BACKSPACE
+STRING is
+DELAY 150
+STRING  a tets
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+STRING test
+DELAY 150
+STRING  sentnce
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+STRING sentence
+DELAY 150
+STRING  with frequent scripted correctoins
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+BACKSPACE
+STRING corrections
+DELAY 150
+STRINGLN  happening at a fixed, regular interval throughout typing.

@@ -1,0 +1,15 @@
+              precision    recall  f1-score   support
+
+       human       0.99      0.99      0.99       897
+    injected       0.99      0.99      0.99      2079
+
+    accuracy                           0.99      2976
+   macro avg       0.99      0.99      0.99      2976
+weighted avg       0.99      0.99      0.99      2976
+
+Confusion matrix [rows=true, cols=pred] (human, injected):
+[[ 885   12]
+ [  11 2068]]
+
+ROC AUC: 0.9998
+Session-level majority-vote accuracy: 1.0000

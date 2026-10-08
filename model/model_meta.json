@@ -1,0 +1,25 @@
+{
+  "feature_columns": [
+    "mean_dwell_ms",
+    "std_dwell_ms",
+    "cv_dwell",
+    "n_dwell_outliers_excluded",
+    "mean_flight_ms",
+    "std_flight_ms",
+    "cv_flight",
+    "n_pauses_excluded",
+    "autorepeat_ratio",
+    "backspace_ratio",
+    "events_per_sec",
+    "n_devices_in_window"
+  ],
+  "sentinel_fill_value": -999,
+  "label_mapping": {
+    "0": "human",
+    "1": "injected"
+  },
+  "window_size": 25,
+  "window_step": 5,
+  "test_auc": 0.9999735416263149,
+  "test_session_accuracy": 1.0
+}

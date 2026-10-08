@@ -1,0 +1,43 @@
+REM ============================================================
+REM Script 5 (keyboard-only, extended): SHORTCUT + HOLD/RELEASE
+REM Purpose: non-STRING structural signature class, keyboard-only,
+REM now combined with a two-paragraph typed body so its STRING
+REM portion is directly comparable to scripts 1-4.
+REM Behavioural signature:
+REM  - Modifier + key chords (CTRL-SHIFT-ESC, ALT-TAB, etc.)
+REM    fire with sub-10ms key-down deltas between modifier and
+REM    main key, far tighter than human chord execution.
+REM  - HOLD/RELEASE durations are exact millisecond values
+REM    rather than the naturally noisy hold times of a human
+REM    finger.
+REM  - The typed paragraphs use a plain fixed delay, so this
+REM    script can be compared against script 2 for STRING timing
+REM    while adding chord/hold structure on top.
+REM ============================================================
+DELAY 500
+GUI r
+DELAY 300
+STRINGLN notepad
+DELAY 800
+
+HOLD SHIFT
+DELAY 40
+STRING sample chord
+RELEASE SHIFT
+DELAY 200
+
+CTRL-SHIFT ESCAPE
+DELAY 500
+ALT TAB
+DELAY 300
+
+DEFAULT_STRING_DELAY 70
+STRINGLN Keystroke dynamics research looks at the rhythm and timing of how people type rather than what they type. Every person presses and releases keys with a slightly different cadence, shaped by muscle memory, keyboard layout, and even mood.
+STRINGLN Chord and shortcut usage adds another layer of signal beyond plain typing, because the timing between a modifier key and the key it pairs with is itself very hard for a script to fake convincingly over a long session.
+
+HOME
+DELAY 50
+SHIFT END
+DELAY 50
+DELETE
+REPEAT 2

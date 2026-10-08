@@ -1,0 +1,30 @@
+REM ============================================================
+REM Script A: RAPID RECON-STYLE LAUNCH SEQUENCE (mimic, non-malicious)
+REM What real attacks do that this copies: many BadUSB payloads
+REM open several utility windows in quick succession while
+REM "casing" a machine (checking OS version, open windows, etc).
+REM What THIS script actually does, step by step:
+REM   1. Waits 500ms, opens the Run dialog (GUI+r).
+REM   2. Opens Calculator (a stock, harmless Windows app).
+REM   3. Waits, opens the Run dialog again.
+REM   4. Opens Notepad.
+REM   5. Types one line identifying itself as the test script.
+REM   6. Waits, then closes Notepad's window with ALT+F4 (no save,
+REM      so a "don't save" prompt may appear - just click No/Don't
+REM      Save, or dismiss it - nothing is written to disk).
+REM No shell, no network access, no file writes, no settings
+REM changes. Only stock apps you already have are opened.
+REM ============================================================
+DELAY 500
+GUI r
+DELAY 300
+STRINGLN calc
+DELAY 1000
+
+GUI r
+DELAY 300
+STRINGLN notepad
+DELAY 800
+STRINGLN This window was opened by a non-malicious BadUSB test script (Script A). No files were changed and nothing was installed.
+DELAY 1000
+ALT F4

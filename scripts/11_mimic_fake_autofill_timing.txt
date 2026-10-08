@@ -1,0 +1,32 @@
+REM ============================================================
+REM Script E: FAKE "MULTI-FIELD AUTOFILL" TIMING MIMIC (non-malicious)
+REM What real attacks do that this copies: credential-stuffing
+REM style scripts often TAB between form fields and type
+REM label:value pairs at very consistent speed (username, then
+REM password, then submit). This script reproduces that TAB-and-
+REM type cadence, but there is no form anywhere - it all lands as
+REM plain text inside Notepad, and the "credentials" are obvious
+REM placeholder labels, not real data.
+REM What THIS script actually does, step by step:
+REM   1. Opens Notepad via the Run dialog.
+REM   2. Types "username_field:" then a placeholder value.
+REM   3. Presses TAB (inserts a tab character - Notepad has no
+REM      real form fields to jump between).
+REM   4. Types "password_field:" then a placeholder value.
+REM   5. Presses TAB again, types "submit_button: [not clicked]".
+REM No shell, no network, no real form or webpage involved, no
+REM actual credentials of any kind - every value is a label.
+REM ============================================================
+DELAY 500
+GUI r
+DELAY 300
+STRINGLN notepad
+DELAY 800
+DEFAULT_STRING_DELAY 25
+STRING username_field: sample_placeholder_value
+TAB
+DELAY 400
+STRING password_field: sample_placeholder_value
+TAB
+DELAY 400
+STRINGLN submit_button: [not clicked, this is inert text]

@@ -1,0 +1,35 @@
+REM ============================================================
+REM Script D: SELECT-ALL / COPY / PASTE "STAGING" MIMIC (non-malicious)
+REM What real attacks do that this copies: many data-staging
+REM payloads select a block of on-screen text or a file's
+REM contents, copy it to the clipboard, then paste it somewhere
+REM else to move it out. This script performs that exact key
+REM sequence but the "somewhere else" is just further down in
+REM the SAME Notepad window - nothing leaves the machine, no
+REM other app or window is touched, and the clipboard only ever
+REM holds the harmless sentence typed in step 2.
+REM What THIS script actually does, step by step:
+REM   1. Opens Notepad via the Run dialog.
+REM   2. Types one labeled sentence.
+REM   3. Presses CTRL+A (select all) then CTRL+C (copy).
+REM   4. Presses ENTER twice to move to a new line.
+REM   5. Presses CTRL+V (paste) to duplicate the same sentence
+REM      below itself, all inside the one open Notepad file.
+REM No shell, no network, no other application involved, no
+REM clipboard content beyond the sentence you can read yourself.
+REM ============================================================
+DELAY 500
+GUI r
+DELAY 300
+STRINGLN notepad
+DELAY 800
+STRING This sentence exists only to demonstrate a select, copy, and paste sequence.
+DELAY 500
+CTRL a
+DELAY 200
+CTRL c
+DELAY 300
+ENTER
+ENTER
+DELAY 300
+CTRL v

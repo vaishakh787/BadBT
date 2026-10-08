@@ -1,0 +1,9 @@
+# Service configuration for BadBT Detector
+# See IMPLEMENTATION_PLAN.md §6 for architecture details
+
+model_path = "model/rf_model.onnx"
+window_size = 25
+confidence_threshold = 0.95
+cooldown_secs = 30
+device_filter = ["BTHENUM", "BTHLEDevice"]
+log_level = "info"

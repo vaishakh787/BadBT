@@ -1,0 +1,37 @@
+REM ============================================================
+REM Script G: RAPID WINDOW-CYCLING "DEFENSE EVASION" MIMIC (non-malicious)
+REM What real attacks do that this copies: some payloads rapidly
+REM cycle through open windows or minimize everything right after
+REM acting, to make it harder for a user to notice what just
+REM happened or to see what was on screen a moment ago. This
+REM script reproduces that rapid-cycling timing using only ALT+TAB
+REM and Win+D - it never reads, closes, or modifies any window's
+REM contents, it only changes focus and visibility.
+REM What THIS script actually does, step by step:
+REM   1. Opens Notepad via the Run dialog and types one labeled
+REM      sentence, so there is a visible "before" state.
+REM   2. Presses ALT+TAB three times in quick succession with
+REM      short delays, cycling window focus.
+REM   3. Presses Win+D to minimize everything (show desktop).
+REM   4. Waits, then presses Win+D again to restore all windows
+REM      to exactly where they were.
+REM No shell, no network, no window is closed or altered - every
+REM action here is reversible focus/visibility change only.
+REM ============================================================
+DELAY 500
+GUI r
+DELAY 300
+STRINGLN notepad
+DELAY 800
+STRINGLN This sentence exists only to give a visible "before" state for the window-cycling sequence below.
+DELAY 800
+
+ALT TAB
+DELAY 300
+ALT TAB
+DELAY 300
+ALT TAB
+DELAY 300
+GUI d
+DELAY 1500
+GUI d

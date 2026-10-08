@@ -1,0 +1,56 @@
+REM ============================================================
+REM Script 3: OSCILLATING / PERIODIC DELAY (extended)
+REM Purpose: "evasion attempt #1" signature.
+REM Alternates between two fixed delay values on a regular
+REM schedule (fast run of characters, then a slower run),
+REM repeating this pattern across two full paragraphs.
+REM Behavioural signature: the interval time-series shows a
+REM clean periodic square-wave pattern across the whole session
+REM (strong autocorrelation/FFT peak), not just a single line.
+REM Real human typing has no such regular periodicity - any
+REM slowdowns correlate with word/punctuation boundaries or
+REM cognitive load, not a fixed character count.
+REM ============================================================
+DELAY 500
+GUI r
+DELAY 300
+STRINGLN notepad
+DELAY 800
+
+DEFAULT_STRING_DELAY 20
+STRING Keystroke dynamics research looks
+DEFAULT_STRING_DELAY 150
+STRING at the rhythm and timing
+DEFAULT_STRING_DELAY 20
+STRING of how people type rather than
+DEFAULT_STRING_DELAY 150
+STRING what they type. Every person presses
+DEFAULT_STRING_DELAY 20
+STRING and releases keys with a slightly
+DEFAULT_STRING_DELAY 150
+STRING different cadence, shaped by muscle
+DEFAULT_STRING_DELAY 20
+STRING memory, keyboard layout, and even mood.
+DEFAULT_STRING_DELAY 150
+STRING Automated input, by contrast, tends
+DEFAULT_STRING_DELAY 20
+STRING to move at a much steadier and
+DEFAULT_STRING_DELAY 150
+STRINGLN more predictable pace. Capturing enough examples of both styles lets a model learn to tell one from the other.
+
+DEFAULT_STRING_DELAY 20
+STRING This dataset is meant purely for
+DEFAULT_STRING_DELAY 150
+STRING defensive research and classroom
+DEFAULT_STRING_DELAY 20
+STRING experimentation. None of these scripts
+DEFAULT_STRING_DELAY 150
+STRING perform any destructive action, and
+DEFAULT_STRING_DELAY 20
+STRING every one of them only types benign
+DEFAULT_STRING_DELAY 150
+STRING sentences into a text editor. The goal
+DEFAULT_STRING_DELAY 20
+STRING is simply to generate clean, labeled
+DEFAULT_STRING_DELAY 150
+STRINGLN timing signatures for building better detection tools.

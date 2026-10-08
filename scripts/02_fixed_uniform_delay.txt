@@ -1,0 +1,20 @@
+REM ============================================================
+REM Script 2: FIXED UNIFORM DELAY (extended)
+REM Purpose: "unsophisticated obfuscation" signature.
+REM DEFAULT_STRING_DELAY forces exactly the same gap between
+REM every character across a full two-paragraph body.
+REM Behavioural signature: inter-keystroke interval is a tight
+REM constant (80ms) for the entire duration of both paragraphs.
+REM Coefficient of variation stays extremely low throughout,
+REM regardless of sentence length or punctuation, whereas real
+REM human typing naturally speeds up and slows down.
+REM ============================================================
+DELAY 500
+GUI r
+DELAY 300
+STRINGLN notepad
+DELAY 800
+DEFAULT_STRING_DELAY 80
+
+STRINGLN Keystroke dynamics research looks at the rhythm and timing of how people type rather than what they type. Every person presses and releases keys with a slightly different cadence, shaped by muscle memory, keyboard layout, and even mood. Automated input, by contrast, tends to move at a much steadier and more predictable pace. Capturing enough examples of both styles lets a model learn to tell one from the other.
+STRINGLN This dataset is meant purely for defensive research and classroom experimentation. None of these scripts perform any destructive action, and every one of them only types benign sentences into a text editor. The goal is simply to generate clean, labeled timing signatures for building better detection tools. Over time, these signatures can help protect systems against unauthorized automated input without punishing real users for typing quickly.

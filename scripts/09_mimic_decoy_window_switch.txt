@@ -1,0 +1,29 @@
+REM ============================================================
+REM Script C: DECOY WINDOW BAIT-AND-SWITCH (mimic, non-malicious)
+REM What real attacks do that this copies: open an innocuous
+REM window as a decoy to draw the victim's attention while other
+REM actions happen in the background, then switch away from it.
+REM What THIS script actually does, step by step:
+REM   1. Waits 500ms, opens Notepad via the Run dialog.
+REM   2. Types a short, clearly-labeled decoy sentence.
+REM   3. Waits, then uses ALT+TAB to switch to whatever window
+REM      was open before Notepad (pure window-focus change, no
+REM      data is read from or sent to that window).
+REM   4. Waits, switches back to Notepad with ALT+TAB again.
+REM   5. Types a second sentence confirming the sequence finished.
+REM No shell, no network access, no file writes, no interaction
+REM with whatever the "other" window happens to contain - this
+REM only changes which window has keyboard focus.
+REM ============================================================
+DELAY 500
+GUI r
+DELAY 300
+STRINGLN notepad
+DELAY 800
+STRINGLN This is a decoy window opened by Script C. It exists only to demonstrate window-switching timing and contains no real content.
+DELAY 1200
+ALT TAB
+DELAY 1500
+ALT TAB
+DELAY 800
+STRINGLN Script C has finished. Only window focus changed - nothing was read from or written to any other window.

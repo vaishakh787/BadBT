@@ -1,0 +1,44 @@
+# Build outputs and intermediate binaries
+build/
+bin/
+obj/
+*.o
+*.obj
+*.a
+*.lib
+*.pdb
+*.idb
+*.ilk
+*.exp
+*.suo
+*.user
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Python & environments
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# IDE & Editor settings
+.vs/
+.vscode/
+.idea/
+*.sln
+*.vcxproj*
+
+# System & temporary logs
+*.log
+*.tmp
+*.bak
+*.swp
+Thumbs.db
+Desktop.ini

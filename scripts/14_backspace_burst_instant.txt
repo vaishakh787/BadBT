@@ -1,0 +1,31 @@
+REM ============================================================
+REM Script 14: INSTANT BACKSPACE BURST (non-malicious)
+REM Purpose: "unsophisticated correction" signature — tests
+REM backspace_ratio and dwell/flight timing when deletion happens
+REM as one contiguous, zero-delay block rather than being woven
+REM into normal typing.
+REM Behavioural signature:
+REM  - All 36 BACKSPACE presses fire back-to-back at raw HID
+REM    speed (REPEAT with no DELAY between repeats) — inter-key
+REM    interval near the HID polling floor, same signature class
+REM    as Script 1's zero-delay burst.
+REM  - The entire deletion happens as a single uninterrupted
+REM    block immediately after the line finishes, with no
+REM    "hesitation" delay before the first BACKSPACE — a real
+REM    human noticing a typo almost always pauses briefly first.
+REM  - Deletion count exactly matches the line length (no
+REM    overshoot/undershoot), which real correction behaviour
+REM    rarely does.
+REM ============================================================
+DELAY 500
+GUI r
+DELAY 300
+STRINGLN notepad
+DELAY 800
+
+STRING This line will be deleted instantly.
+DELAY 200
+BACKSPACE
+REPEAT 35
+DELAY 300
+STRINGLN This is the clean sentence typed after the instant backspace burst removed the line above.

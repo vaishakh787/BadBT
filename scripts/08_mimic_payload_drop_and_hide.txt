@@ -1,0 +1,27 @@
+REM ============================================================
+REM Script B: FAST "PAYLOAD DROP" + HIDE ACTIVITY (mimic, non-malicious)
+REM What real attacks do that this copies: dump a block of text
+REM/data very quickly into an open window, then immediately hide
+REM or minimize everything to reduce the chance a user notices.
+REM What THIS script actually does, step by step:
+REM   1. Waits 500ms, opens the Run dialog, opens Notepad.
+REM   2. Types a two-paragraph block of harmless text at zero
+REM      delay (this is the part that "looks like" a fast data
+REM      drop - it is just plain sentences, nothing executable).
+REM   3. Waits 1s, then presses GUI+d (show desktop), which only
+REM      minimizes all open windows - it does not close, delete,
+REM      or hide any files, and nothing persists after you click
+REM      back into Notepad.
+REM No shell, no network access, no file writes outside whatever
+REM you manually save, no registry/startup changes.
+REM ============================================================
+DELAY 500
+GUI r
+DELAY 300
+STRINGLN notepad
+DELAY 800
+
+STRINGLN This paragraph simulates the speed of an automated payload drop, but it only contains plain sentences typed into Notepad. Nothing here is a command, a script, or an executable. It is purely text, and it will do nothing if you copy it, save it, or delete it.
+STRINGLN The next action minimizes every open window using the standard Windows "show desktop" shortcut. This mimics an attacker trying to hide recent activity from the screen, but the shortcut itself does not close, delete, or modify any window or file - it only changes what is currently visible.
+DELAY 1000
+GUI d
