@@ -4,6 +4,8 @@
 #include <vector>
 #include <deque>
 #include <unordered_map>
+#include <set>
+#include <tuple>
 #include <cstdint>
 #include <cmath>
 
@@ -82,9 +84,23 @@ private:
     int64_t last_keyup_ts_ = -1;
     uint64_t seq_counter_ = 0;
 
-    // Deduplication tracking (matches Python clean_session dedup)
-    InputEvent last_event_{};
-    bool has_last_event_ = false;
+    // ── Bounded exact-duplicate removal (reset() clears this per session) ──
+    // Removes exact-duplicate raw events (same timestamp_ns, vkey, scan_code, flags),
+    // keep-first, matching Python drop_duplicates(subset=[...]) BUT bounded to the
+    // last `dedup_horizon_` arrived events instead of the whole session. The horizon
+    // (4x the window; a window typically spans ~2x window_size raw events) is a
+    // bounded-memory heuristic, NOT a guarantee: held keys, autorepeat, unmatched
+    // keyups and other unpaired events can evict a still-relevant event, and a
+    // duplicate arriving after eviction is re-admitted and can alter pairing, dwell,
+    // flight or pause features. This intentionally trades Python's exact unbounded
+    // per-session dedup for bounded memory; HID double-reports are adjacent (same
+    // timestamp) in practice. Dropped events are discarded before any
+    // pairing/flight-time state updates.
+    // Detection is by ARRIVAL order (dedup_order_ is a FIFO), not timestamp.
+    using DedupKey = std::tuple<int64_t, uint16_t, uint16_t, uint16_t>;
+    std::set<DedupKey> seen_events_;     // membership of the last dedup_horizon_ events
+    std::deque<DedupKey> dedup_order_;   // arrival order, for pruning the oldest
+    size_t dedup_horizon_ = 0;           // max distinct events tracked (set in ctor)
 
     // Rolling window buffer
     std::deque<PairedKeystroke> window_buffer_;

@@ -283,74 +283,230 @@ int main() {
     // This test pins the CURRENT (divergent) C++ behaviour. When P1-a ports the
     // minority-device filter into C++, this expectation must flip from 2 -> 1, and
     // this assertion is what will flag that change.
-    std::cout << "[Part D] Non-dominant device-path handling (synthetic) ...\n";
+    // Shared helpers for the raw-event (push_event) parity parts below.
+    // make_ev builds one raw InputEvent; push_pair sends a keydown+keyup for one key
+    // on a given device, 10ms dwell, returning nothing (features read via accessors).
+    auto make_ev = [](int64_t ts, uint16_t scan, uint16_t vkey, uint16_t flags,
+                      const std::string& dev) {
+        badbt::InputEvent e;
+        e.timestamp_ns = ts; e.vkey = vkey; e.scan_code = scan; e.flags = flags;
+        e.device_path = dev;
+        return e;
+    };
+    auto push_pair = [&](badbt::FeatureExtractor& fx, int64_t t_down, uint16_t scan,
+                         uint16_t vkey, const std::string& dev) {
+        fx.push_event(make_ev(t_down, scan, vkey, 0, dev));       // keydown
+        fx.push_event(make_ev(t_down + 10, scan, vkey, 1, dev));  // keyup (dwell 10ms)
+    };
+
+    // ── Part D: Device-path handling on the LIVE path (synthetic, push_event) ──
+    // P1-a decision A-#3: the live ingestion path does NOT apply Python's
+    // whole-session "keep only the dominant device" filter, because doing it
+    // incrementally is order-dependent and could discard events from the real
+    // keyboard (blinding detection). So live ingestion keeps ALL otherwise-valid
+    // events regardless of device_path, and device_path flows to feature extraction.
+    // Consequence: a genuine multi-device window reports n_devices_in_window >= 2.
+    // This is the documented residual live/training distribution difference -- the
+    // training data (via clean_session) has no session with >=2 non-empty devices,
+    // so the model never saw n_devices_in_window > 1. We do NOT claim parity here.
+    std::cout << "[Part D] Device-path handling on the live path (synthetic, push_event) ...\n";
     {
-        badbt::FeatureExtractor dev_fx(25, 1);
-        for (size_t i = 0; i < 25; ++i) {
+        // D1: A, B, B, B sequence (the order-dependence regression). Every event must
+        //     be retained -- no event is dropped just because the running-majority
+        //     device changes mid-stream. All 4 pairs survive and both devices appear.
+        badbt::FeatureExtractor abbb_fx(25, 1);
+        push_pair(abbb_fx, 0,   30, 0x41, "A");
+        push_pair(abbb_fx, 100, 31, 0x42, "B");
+        push_pair(abbb_fx, 200, 32, 0x43, "B");
+        push_pair(abbb_fx, 300, 33, 0x44, "B");
+        bool saw_a = false, saw_b = false;
+        for (const auto& k : abbb_fx.current_window()) {
+            if (k.device_path == "A") saw_a = true;
+            if (k.device_path == "B") saw_b = true;
+        }
+        std::cout << "    D1 A,B,B,B paired_count = " << abbb_fx.paired_count()
+                  << ", saw A=" << saw_a << " saw B=" << saw_b
+                  << " (expected 4 pairs, both devices retained -- no order-dependent drop)\n";
+        if (abbb_fx.paired_count() != 4 || !saw_a || !saw_b) {
+            std::cerr << "FAIL: D1 live path dropped a device's events (must retain all)\n";
+            return 1;
+        }
+
+        // D2: full multi-device window -> n_devices_in_window reflects the ACTUAL
+        //     distinct devices present (here 2). Documents the residual difference.
+        badbt::FeatureExtractor multi_fx(25, 1);
+        for (int i = 0; i < 25; ++i) {
             badbt::PairedKeystroke pk;
             pk.seq = i + 1;
             pk.keydown_ts = 1'000'000'000LL + static_cast<int64_t>(i) * 100'000'000LL;
-            pk.dwell_ms = 50.0;
-            pk.flight_ms = 50.0;
-            pk.vkey = 0x41;
-            pk.device_path = (i == 24) ? "DEV2" : "DEV1"; // 24 on DEV1, 1 on DEV2
-            dev_fx.push_paired(pk);
+            pk.dwell_ms = 50.0; pk.flight_ms = 50.0; pk.vkey = 0x41;
+            pk.device_path = (i % 2 == 0) ? "DEV1" : "DEV2"; // two devices interleaved
+            multi_fx.push_paired(pk);
         }
-        auto dev_feats = dev_fx.extract_window_features();
-        std::cout << "    n_devices_in_window = " << dev_feats[11]
-                  << " (C++ keeps both; Python clean_session would report 1)\n";
-        if (!approx_equal(dev_feats[11], 2.0f)) {
-            std::cerr << "FAIL: expected C++ to report 2 devices (current un-ported behaviour)\n";
+        auto d2 = multi_fx.extract_window_features();
+        std::cout << "    D2 multi-device n_devices_in_window = " << d2[11]
+                  << " (expected 2; live keeps all devices)\n";
+        if (!approx_equal(d2[11], 2.0f)) {
+            std::cerr << "FAIL: D2 n_devices_in_window should report the real device count (2)\n";
+            return 1;
+        }
+
+        // D3: single-device window -> n_devices_in_window == 1 (baseline).
+        badbt::FeatureExtractor single_fx(25, 1);
+        for (int i = 0; i < 25; ++i) {
+            badbt::PairedKeystroke pk;
+            pk.seq = i + 1;
+            pk.keydown_ts = 1'000'000'000LL + static_cast<int64_t>(i) * 100'000'000LL;
+            pk.dwell_ms = 50.0; pk.flight_ms = 50.0; pk.vkey = 0x41;
+            pk.device_path = "DEV1";
+            single_fx.push_paired(pk);
+        }
+        auto d3 = single_fx.extract_window_features();
+        std::cout << "    D3 single-device n_devices_in_window = " << d3[11] << " (expected 1)\n";
+        if (!approx_equal(d3[11], 1.0f)) {
+            std::cerr << "FAIL: D3 single-device window should report 1\n";
             return 1;
         }
     }
-    std::cout << ">>> Part D PASSED: documented C++/Python device-path divergence pinned.\n\n";
+    std::cout << ">>> Part D PASSED: live path retains all devices (no order-dependent drop).\n\n";
 
-    // ── Part E: Duplicate-event handling (synthetic) ──
-    // Real captures contain ZERO exact-duplicate events (verified during the audit),
-    // so this divergence has no effect on any committed fixture today; the test uses
-    // synthetic events built from the real schema to characterise it.
-    // Python clean_session() runs a GLOBAL drop_duplicates(timestamp,vkey,scan,flags).
-    // The C++ extractor only drops a duplicate that is IMMEDIATELY adjacent to its
-    // twin. Consequence:
-    //   * adjacent exact duplicate   -> dropped by C++ (matches Python)       -> 1 pair
-    //   * non-adjacent exact dup pair -> kept by C++ (Python would drop it)    -> extra pair
-    std::cout << "[Part E] Duplicate-event handling (synthetic) ...\n";
-    auto make_ev = [](int64_t ts, uint16_t scan, uint16_t vkey, uint16_t flags) {
-        badbt::InputEvent e;
-        e.timestamp_ns = ts; e.vkey = vkey; e.scan_code = scan; e.flags = flags;
-        e.device_path = "DEV1";
-        return e;
+    // ── Part E: Bounded exact-duplicate removal (synthetic, push_event) ──
+    // P1-a decision B-a: exact-duplicate removal (timestamp_ns, vkey, scan_code,
+    // flags; keep-first) is retained but BOUNDED to the last dedup_horizon_ arrived
+    // events (= 4 x window_size; a window typically spans ~2x window_size raw events).
+    // The horizon is a bounded-memory heuristic, NOT a guarantee: held keys,
+    // autorepeat, unmatched keyups and other unpaired events can evict a still-
+    // relevant event, and a duplicate arriving after eviction can alter pairing,
+    // dwell, flight or pause features (pinned by E5). Exact unbounded per-session
+    // dedup is intentionally traded for bounded memory, so this is NOT equivalent to
+    // Python's drop_duplicates beyond the horizon. Real captures contain ZERO
+    // duplicates (verified), so this changes no committed fixture.
+    std::cout << "[Part E] Bounded exact-duplicate removal (synthetic, push_event) ...\n";
+    auto make_ev1 = [&](int64_t ts, uint16_t scan, uint16_t vkey, uint16_t flags) {
+        return make_ev(ts, scan, vkey, flags, "DEV1");
     };
     {
-        // E1: non-adjacent duplicate of a full keydown/keyup pair.
-        badbt::FeatureExtractor dup_fx(25, 1);
-        dup_fx.push_event(make_ev(0, 30, 0x41, 0));    // KD A
-        dup_fx.push_event(make_ev(10, 30, 0x41, 1));   // KU A -> pair 1
-        dup_fx.push_event(make_ev(100, 31, 0x42, 0));  // KD B
-        dup_fx.push_event(make_ev(110, 31, 0x42, 1));  // KU B -> pair 2
-        dup_fx.push_event(make_ev(0, 30, 0x41, 0));    // KD A duplicate (non-adjacent)
-        dup_fx.push_event(make_ev(10, 30, 0x41, 1));   // KU A duplicate -> pair 3 (C++ keeps)
-        std::cout << "    non-adjacent dup paired_count = " << dup_fx.paired_count()
-                  << " (Python global dedup would yield 2)\n";
-        if (dup_fx.paired_count() != 3) {
-            std::cerr << "FAIL: expected C++ to retain non-adjacent duplicate (3 pairs)\n";
+        // E1: adjacent exact duplicate (within horizon) -> dropped, keep-first.
+        badbt::FeatureExtractor adj_fx(25, 1);
+        adj_fx.push_event(make_ev1(0, 30, 0x41, 0));    // KD A
+        adj_fx.push_event(make_ev1(0, 30, 0x41, 0));    // KD A exact adjacent dup -> dropped
+        adj_fx.push_event(make_ev1(10, 30, 0x41, 1));   // KU A -> pair 1
+        // paired_count alone cannot detect a missing dedup here: an admitted duplicate
+        // keydown just overwrites the same open key, still yielding 1 pair. seq does:
+        // seq_counter_ increments on every ADMITTED keydown and the pair inherits its
+        // keydown's seq, so a dropped duplicate leaves seq == 1, while an admitted one
+        // overwrites the open key with seq == 2.
+        const uint64_t e1_seq = adj_fx.current_window().empty()
+                                    ? 0 : adj_fx.current_window().back().seq;
+        std::cout << "    E1 adjacent dup paired_count      = " << adj_fx.paired_count()
+                  << ", pair seq = " << e1_seq << " (expected 1 pair, seq 1)\n";
+        if (adj_fx.paired_count() != 1 || e1_seq != 1) {
+            std::cerr << "FAIL: E1 adjacent duplicate not deduped (expected 1 pair with seq 1)\n";
             return 1;
         }
 
-        // E2: immediately-adjacent exact duplicate is dropped (consecutive dedup).
-        badbt::FeatureExtractor adj_fx(25, 1);
-        adj_fx.push_event(make_ev(0, 30, 0x41, 0));    // KD A
-        adj_fx.push_event(make_ev(0, 30, 0x41, 0));    // KD A exact adjacent dup -> dropped
-        adj_fx.push_event(make_ev(10, 30, 0x41, 1));   // KU A -> pair 1
-        std::cout << "    adjacent dup paired_count     = " << adj_fx.paired_count()
-                  << " (matches Python: 1)\n";
-        if (adj_fx.paired_count() != 1) {
-            std::cerr << "FAIL: expected adjacent duplicate to be deduped (1 pair)\n";
+        // E2: NON-adjacent exact duplicate, still within horizon -> dropped.
+        badbt::FeatureExtractor dup_fx(25, 1);
+        dup_fx.push_event(make_ev1(0, 30, 0x41, 0));    // KD A
+        dup_fx.push_event(make_ev1(10, 30, 0x41, 1));   // KU A -> pair 1
+        dup_fx.push_event(make_ev1(100, 31, 0x42, 0));  // KD B
+        dup_fx.push_event(make_ev1(110, 31, 0x42, 1));  // KU B -> pair 2
+        dup_fx.push_event(make_ev1(0, 30, 0x41, 0));    // KD A dup (within horizon) -> dropped
+        dup_fx.push_event(make_ev1(10, 30, 0x41, 1));   // KU A dup -> dropped
+        std::cout << "    E2 non-adjacent (in-horizon) dup paired_count = " << dup_fx.paired_count()
+                  << " (expected 2; duplicate removed)\n";
+        if (dup_fx.paired_count() != 2) {
+            std::cerr << "FAIL: E2 in-horizon duplicate not deduped (expected 2)\n";
+            return 1;
+        }
+
+        // E3: duplicate OUTSIDE the horizon -> NOT removed (pruning works). Use a
+        //     small window so the horizon (4 x window) is small: window=4 -> horizon=16
+        //     events. Push pair A, then enough distinct pairs to evict A's two dedup
+        //     keys, then re-push A: it must be treated as new (a fresh pair is formed).
+        badbt::FeatureExtractor prune_fx(4, 1);             // horizon = 16 events
+        prune_fx.push_event(make_ev1(0, 30, 0x41, 0));      // KD A
+        prune_fx.push_event(make_ev1(10, 30, 0x41, 1));     // KU A -> pair 1
+        for (int i = 0; i < 12; ++i) {                      // 12 distinct pairs = 24 events > 16
+            int64_t t = 1000 + static_cast<int64_t>(i) * 100;
+            prune_fx.push_event(make_ev1(t, static_cast<uint16_t>(50 + i),
+                                         static_cast<uint16_t>(0x60 + i), 0));
+            prune_fx.push_event(make_ev1(t + 10, static_cast<uint16_t>(50 + i),
+                                         static_cast<uint16_t>(0x60 + i), 1));
+        }
+        size_t pc_before = prune_fx.paired_count();
+        prune_fx.push_event(make_ev1(0, 30, 0x41, 0));      // same tuple as pair 1's KD
+        prune_fx.push_event(make_ev1(10, 30, 0x41, 1));     // same tuple as pair 1's KU
+        size_t pc_after = prune_fx.paired_count();
+        std::cout << "    E3 out-of-horizon dup: paired_count " << pc_before << " -> " << pc_after
+                  << " (expected +1; old dedup entries pruned, duplicate re-admitted)\n";
+        if (pc_after != pc_before + 1) {
+            std::cerr << "FAIL: E3 out-of-horizon duplicate was not re-admitted (pruning broken)\n";
+            return 1;
+        }
+
+        // E4: SESSION ISOLATION. reset() clears dedup state, so an identical stream
+        //     after reset() is NOT cross-session deduped (reset() is the C++ session
+        //     boundary, analogous to Python's per-source_file grouping).
+        badbt::FeatureExtractor iso_fx(25, 1);
+        iso_fx.push_event(make_ev1(0, 30, 0x41, 0));
+        iso_fx.push_event(make_ev1(10, 30, 0x41, 1));   // session 1 -> pair 1
+        if (iso_fx.paired_count() != 1) {
+            std::cerr << "FAIL: E4 setup (expected 1 pair before reset)\n";
+            return 1;
+        }
+        iso_fx.reset();
+        iso_fx.push_event(make_ev1(0, 30, 0x41, 0));    // same tuple as session 1
+        iso_fx.push_event(make_ev1(10, 30, 0x41, 1));   // must NOT be cross-session deduped
+        std::cout << "    E4 post-reset paired_count        = " << iso_fx.paired_count()
+                  << " (expected 1; dedup state cleared on reset)\n";
+        if (iso_fx.paired_count() != 1) {
+            std::cerr << "FAIL: E4 reset() did not clear dedup state (session isolation broken)\n";
+            return 1;
+        }
+
+        // E5: KNOWN LIMITATION (pins current behaviour, NOT the ideal). Held key X:
+        //     its keydown stays open while other keys are typed, so its dedup tuple is
+        //     evicted from the bounded history even though X is still relevant. A
+        //     duplicate of X's keydown arriving after eviction is re-admitted and
+        //     overwrites X's open key with a new flight time computed from the latest
+        //     keyup. Python's unbounded per-session dedup would drop that duplicate,
+        //     leaving X's flight NaN (its original keydown had no preceding keyup).
+        //     window=4 -> horizon=16 events. The control run keeps the duplicate
+        //     inside the horizon to show the divergence is caused by eviction.
+        const int64_t MS = 1'000'000LL;
+        auto held_key_flight = [&](int n_other_pairs) {
+            badbt::FeatureExtractor fx(4, 1);
+            fx.push_event(make_ev1(1000 * MS, 80, 0x58, 0));      // KD X (held)
+            for (int i = 0; i < n_other_pairs; ++i) {
+                int64_t t = 2000 * MS + static_cast<int64_t>(i) * 100 * MS;
+                fx.push_event(make_ev1(t, static_cast<uint16_t>(10 + i),
+                                       static_cast<uint16_t>(0x41 + i), 0));
+                fx.push_event(make_ev1(t + 10 * MS, static_cast<uint16_t>(10 + i),
+                                       static_cast<uint16_t>(0x41 + i), 1));
+            }
+            fx.push_event(make_ev1(1000 * MS, 80, 0x58, 0));      // exact dup of KD X
+            fx.push_event(make_ev1(4000 * MS, 80, 0x58, 1));      // KU X -> newest pair
+            return fx.current_window().back().flight_ms;
+        };
+        double in_horizon = held_key_flight(3);   // 1 + 6 = 7 events <= 16: dup dropped
+        double evicted = held_key_flight(9);      // 1 + 18 = 19 events > 16: X evicted
+        // Evicted case: re-admitted dup's flight = 1000ms - last keyup (2800+10ms).
+        const double expected_evicted = (1000.0 - 2810.0);
+        std::cout << "    E5 held-key dup: in-horizon flight = " << in_horizon
+                  << " (NaN, matches Python); after eviction flight = " << evicted
+                  << " ms (Python would give NaN) -- KNOWN LIMITATION\n";
+        if (!std::isnan(in_horizon)) {
+            std::cerr << "FAIL: E5 control: in-horizon duplicate should be dropped (flight NaN)\n";
+            return 1;
+        }
+        if (std::isnan(evicted) || std::fabs(evicted - expected_evicted) > 1e-3) {
+            std::cerr << "FAIL: E5 limitation behaviour changed (expected flight "
+                      << expected_evicted << " ms after eviction); update docs/tests\n";
             return 1;
         }
     }
-    std::cout << ">>> Part E PASSED: duplicate-event behaviour characterised.\n\n";
+    std::cout << ">>> Part E PASSED: bounded exact-duplicate removal + pruning verified.\n\n";
 
     std::cout << "========================================================\n";
     std::cout << "         ALL FEATURE PARITY TESTS PASSED!               \n";

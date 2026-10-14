@@ -6,13 +6,23 @@
 namespace badbt {
 
 FeatureExtractor::FeatureExtractor(size_t window_size, size_t step)
-    : window_size_(window_size), step_(step) {}
+    : window_size_(window_size), step_(step) {
+    // Dedup horizon = 4x the window, in raw events. A window of window_size_ paired
+    // keystrokes typically spans ~2x window_size_ raw events, so 4x leaves headroom.
+    // This is a bounded-memory heuristic, NOT a guarantee: held keys, autorepeat,
+    // unmatched keyups and other unpaired events can evict a still-relevant event,
+    // and a duplicate arriving after eviction can alter pairing, dwell, flight or
+    // pause features. Exact unbounded per-session dedup is traded for bounded memory.
+    // window_size_ == 0 falls back to a horizon of 8.
+    dedup_horizon_ = (window_size_ > 0) ? window_size_ * 4 : 8;
+}
 
 void FeatureExtractor::reset() {
     open_keys_.clear();
     last_keyup_ts_ = -1;
     seq_counter_ = 0;
-    has_last_event_ = false;
+    seen_events_.clear();
+    dedup_order_.clear();
     window_buffer_.clear();
     total_paired_count_ = 0;
     keystrokes_since_last_eval_ = 0;
@@ -20,16 +30,30 @@ void FeatureExtractor::reset() {
 }
 
 bool FeatureExtractor::push_event(const InputEvent& event) {
-    // 1. Deduplication (matches clean_session in Python: drop duplicate timestamp, vkey, scan_code, flags)
-    if (has_last_event_ &&
-        event.timestamp_ns == last_event_.timestamp_ns &&
-        event.vkey == last_event_.vkey &&
-        event.scan_code == last_event_.scan_code &&
-        event.flags == last_event_.flags) {
-        return false;
+    // ── Bounded exact-duplicate removal (runs before any pairing state update) ──
+    // Drop exact-duplicate raw events (timestamp_ns, vkey, scan_code, flags),
+    // keep-first, over the last dedup_horizon_ arrived events. This mirrors Python
+    // drop_duplicates(subset=[...]) within the realistic (adjacent) horizon and
+    // discards the event before it can perturb dwell/flight math -- exactly as Python
+    // removes duplicate rows before pair_dwell_flight(). A duplicate older than the
+    // horizon is intentionally NOT removed (documented divergence; see header).
+    //
+    // NOTE on device paths: unlike Python's clean_session(), the live path does NOT
+    // drop "minority device" events. That filter required a whole-session two-pass
+    // count; doing it incrementally is order-dependent and could discard events from
+    // the real keyboard, blinding detection. device_path still flows to features, so
+    // a genuine multi-interface window reports n_devices_in_window >= 2 (a residual
+    // live/training distribution difference -- the training set has no such session).
+    const DedupKey dedup_key{event.timestamp_ns, event.vkey,
+                             event.scan_code, event.flags};
+    if (!seen_events_.insert(dedup_key).second) {
+        return false; // seen within the horizon -> duplicate, drop
     }
-    last_event_ = event;
-    has_last_event_ = true;
+    dedup_order_.push_back(dedup_key);
+    if (dedup_order_.size() > dedup_horizon_) {
+        seen_events_.erase(dedup_order_.front()); // prune oldest-by-arrival
+        dedup_order_.pop_front();
+    }
 
     // 2. Parse flags
     bool is_keyup = (event.flags & 0x01) != 0;      // RI_KEY_BREAK (0x01)
