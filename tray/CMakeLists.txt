@@ -5,6 +5,8 @@ add_executable(badbt-tray
     src/tray_app.cpp
     src/notification.cpp
     src/blocklist.cpp
+    src/bt_address.cpp
+    src/bt_disconnect.cpp
     "${CMAKE_SOURCE_DIR}/capture/src/raw_input.cpp"
 )
 
@@ -25,6 +27,9 @@ target_link_libraries(badbt-tray PRIVATE
     user32
     shell32
     advapi32
+    bthprops
+    cfgmgr32
+    ws2_32
     onnxruntime
 )
 
@@ -60,6 +65,8 @@ add_executable(test_tray_state
     src/tray_app.cpp
     src/notification.cpp
     src/blocklist.cpp
+    src/bt_address.cpp
+    src/bt_disconnect.cpp
     "${CMAKE_SOURCE_DIR}/capture/src/raw_input.cpp"
 )
 
@@ -80,6 +87,9 @@ target_link_libraries(test_tray_state PRIVATE
     user32
     shell32
     advapi32
+    bthprops
+    cfgmgr32
+    ws2_32
     onnxruntime
 )
 
@@ -115,5 +125,15 @@ add_executable(test_blocklist
 )
 
 target_include_directories(test_blocklist PRIVATE
+    include
+)
+
+# ── Test: Bluetooth address parsing (pure C++; portable, no Win32 link) ──
+add_executable(test_bt_address
+    tests/test_bt_address.cpp
+    src/bt_address.cpp
+)
+
+target_include_directories(test_bt_address PRIVATE
     include
 )

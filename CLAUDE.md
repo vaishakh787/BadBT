@@ -40,6 +40,7 @@ hardcoded relative paths (e.g. `data/raw/adhi_01.jsonl`) resolve:
 ```powershell
 & "build/tray/test_tray_state.exe"          # hook lifecycle, block-until-Reset, blocklist, toggle bypass
 & "build/tray/test_blocklist.exe"           # Blocklist add/dedup/clear + save/load round-trip (portable)
+& "build/tray/test_bt_address.exe"          # Raw Input path -> instance ID -> Bluetooth MAC parsing (portable)
 & "build/detector/test_config_loader.exe"   # service.toml parsing + key precedence
 & "build/detector/test_onnx_inference.exe"  # ONNX inference + JSONL replay regression
 & "build/detector/test_feature_parity.exe"  # see "Feature parity" below
@@ -100,6 +101,17 @@ sessions are named by subject (`adhi_*`, `vik*`, etc.); injection samples are `i
   blocklist is reloaded on startup, so a device stays blocked across restarts until Reset. The
   detector's own `Cooldown` state still exists internally but no longer drives the UI (status reads
   `Monitoring` / `Blocked` / `Disabled`).
+- **Disconnect-on-detect** (`tray/src/bt_disconnect.cpp`, `tray/src/bt_address.cpp`; `TrayConfig::disconnect_on_detect`,
+  default on): on detection the blocklisted device is disconnected and unpaired through the Windows Bluetooth API
+  (Raw Input path → devnode → walk parents for the MAC → per-radio `BluetoothSetServiceState(HID, DISABLE)` +
+  `BluetoothRemoveDevice`; falls back to disabling the devnode, which needs admin). It runs on a worker thread and
+  reports back via `WM_DISCONNECT_DONE`. Input is blocked only while it is in flight: **success lifts the block
+  automatically**, **failure keeps it until Reset** (old behavior). A blocklisted device that reconnects and types is
+  disconnected again by the capture thread (rate-limited) and never reaches the detector. With
+  `disconnect_on_detect=false` the legacy block-until-Reset behavior applies, including blocking at startup when the
+  blocklist is non-empty. `parse_bt_address` / `raw_input_path_to_instance_id` are pure C++ and covered by
+  `test_bt_address` (portable, builds with clang++ on macOS). The Windows Bluetooth calls themselves are untested
+  off-device — verify on real hardware.
 - **`service/`** is scaffolding only; it is commented out in the top-level `CMakeLists.txt` and not built.
 
 ## Model artifacts — stale-data caution

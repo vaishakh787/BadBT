@@ -4,6 +4,9 @@
 #include <cassert>
 #include <iomanip>
 #include <cstdio>
+#include <atomic>
+#include <chrono>
+#include <thread>
 #include <nlohmann/json.hpp>
 #include "../include/tray_app.h"
 #include "../include/notification.h"
@@ -79,6 +82,7 @@ int main() {
     config.enable_capture_thread = false; // Synchronous, deterministic testing
     config.enable_keyboard_hook = true;   // Test WH_KEYBOARD_LL hook registration
     config.blocklist_path = kBlocklistPath;
+    config.disconnect_on_detect = false;  // tests 1-11 cover the legacy block-until-Reset path
 
     badbt::TrayApp app(config);
     bool init_ok = app.initialize();
@@ -320,6 +324,85 @@ int main() {
     std::cout << ">>> TEST 10 PASSED: Protection re-enabled cleanly resumes monitoring and blocking.\n";
 
     // ─────────────────────────────────────────────────────────────────
+    // TEST 12: Disconnect-on-detect -> device disconnected -> block lifts automatically;
+    //          if the disconnect fails -> block stays until Reset
+    // ─────────────────────────────────────────────────────────────────
+    std::cout << "\n[TEST 12] Disconnect-on-detect: success lifts the block, failure keeps it...\n";
+    SendMessageW(app.hwnd(), WM_COMMAND, MAKEWPARAM(badbt::IDC_BTN_RESET, 0), 0);
+    assert(app.is_blocking_active() == false);
+    assert(app.blocklist_size() == 0);
+
+    std::atomic<int>  fake_calls{0};
+    std::atomic<bool> fake_succeeds{true};
+    app.set_disconnect_fn([&](const std::string&) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        badbt::DisconnectResult r;
+        r.success = fake_succeeds.load();
+        r.detail = r.success ? "fake disconnect ok" : "fake disconnect refused";
+        ++fake_calls;
+        return r;
+    });
+    app.set_disconnect_on_detect(true);
+
+    auto pump_for = [&](int ms) {
+        auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+        while (std::chrono::steady_clock::now() < end) {
+            pump_ui_messages(app.hwnd());
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    };
+
+    // 12a: successful disconnect
+    const size_t alerts_before = app.total_alerts();
+    int64_t shift4_ns = 105LL * 1'000'000'000LL;
+    int64_t t_offset4 = (inj_events.back().timestamp_ns + shift4_ns) - inj_events.front().timestamp_ns;
+    for (size_t i = 0; i < inj_events.size(); ++i) {
+        badbt::InputEvent ev = inj_events[i];
+        ev.timestamp_ns += t_offset4;
+        app.detector()->process_event(ev);
+    }
+    assert(app.total_alerts() == alerts_before + 1);
+    assert(app.is_blocking_active() == true);          // safety gate while disconnecting
+    assert(app.blocklist_size() == 1);
+
+    for (int i = 0; i < 300 && app.total_disconnects() == 0; ++i) {
+        pump_for(10);
+    }
+    assert(fake_calls.load() == 1);
+    assert(app.total_disconnects() == 1);
+    assert(app.is_blocking_active() == false);         // lifted automatically, no Reset needed
+    assert(app.current_status_string() == L"Monitoring");
+    assert(app.blocklist_size() == 1);                 // device stays on the blocklist
+    assert(simulate_hook_event('D', WM_KEYDOWN) == 0);
+    std::cout << "  - 12a success: block lifted automatically, device stays blocklisted\n";
+
+    // 12b: failed disconnect keeps input blocked until Reset
+    SendMessageW(app.hwnd(), WM_COMMAND, MAKEWPARAM(badbt::IDC_BTN_RESET, 0), 0);
+    fake_succeeds.store(false);
+    int64_t shift5_ns = 140LL * 1'000'000'000LL;
+    int64_t t_offset5 = (inj_events.back().timestamp_ns + shift5_ns) - inj_events.front().timestamp_ns;
+    for (size_t i = 0; i < inj_events.size(); ++i) {
+        badbt::InputEvent ev = inj_events[i];
+        ev.timestamp_ns += t_offset5;
+        app.detector()->process_event(ev);
+    }
+    for (int i = 0; i < 300 && fake_calls.load() < 2; ++i) {
+        pump_for(10);
+    }
+    pump_for(300); // let the failure outcome reach the UI thread
+    assert(fake_calls.load() == 2);
+    assert(app.total_disconnects() == 1);              // unchanged: this one failed
+    assert(app.is_blocking_active() == true);          // stays blocked
+    assert(app.current_status_string() == L"Blocked");
+    assert(simulate_hook_event('E', WM_KEYDOWN) == 1);
+    std::cout << "  - 12b failure: input stays blocked until Reset\n";
+
+    SendMessageW(app.hwnd(), WM_COMMAND, MAKEWPARAM(badbt::IDC_BTN_RESET, 0), 0);
+    app.set_disconnect_on_detect(false);
+    assert(app.is_blocking_active() == false);
+    std::cout << ">>> TEST 12 PASSED: Disconnect succeeds -> auto-unblock; fails -> blocked until Reset.\n";
+
+    // ─────────────────────────────────────────────────────────────────
     // TEST 11: Shutdown -> hook removed -> blocking false -> no dangling callback/state
     // ─────────────────────────────────────────────────────────────────
     std::cout << "\n[TEST 11] Shutdown -> hook removed -> blocking false -> no dangling callback/state...\n";
@@ -341,7 +424,7 @@ int main() {
     std::remove(kBlocklistPath); // clean up the temp blocklist file
 
     std::cout << "\n========================================================\n";
-    std::cout << "      ALL 11 BLOCKING & LIFECYCLE TESTS 100% PASSED!    \n";
+    std::cout << "      ALL 12 BLOCKING & LIFECYCLE TESTS 100% PASSED!    \n";
     std::cout << "========================================================\n";
     return 0;
 }

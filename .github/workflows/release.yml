@@ -50,6 +50,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $dirs = @{
             'build/tray/Release/test_blocklist.exe'            = 'build/tray/test_blocklist.exe'
+            'build/tray/Release/test_bt_address.exe'           = 'build/tray/test_bt_address.exe'
             'build/detector/Release/test_config_loader.exe'    = 'build/detector/test_config_loader.exe'
             'build/detector/Release/test_feature_parity.exe'   = 'build/detector/test_feature_parity.exe'
             'build/detector/Release/test_onnx_inference.exe'   = 'build/detector/test_onnx_inference.exe'
