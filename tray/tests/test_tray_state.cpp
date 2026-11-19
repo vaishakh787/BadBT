@@ -325,9 +325,9 @@ int main() {
 
     // ─────────────────────────────────────────────────────────────────
     // TEST 12: Disconnect-on-detect -> device disconnected -> block lifts automatically;
-    //          if the disconnect fails -> block stays until Reset
+    //          a failed disconnect must NOT leave the keyboard blocked
     // ─────────────────────────────────────────────────────────────────
-    std::cout << "\n[TEST 12] Disconnect-on-detect: success lifts the block, failure keeps it...\n";
+    std::cout << "\n[TEST 12] Disconnect-on-detect: block lifts after success AND after failure...\n";
     SendMessageW(app.hwnd(), WM_COMMAND, MAKEWPARAM(badbt::IDC_BTN_RESET, 0), 0);
     assert(app.is_blocking_active() == false);
     assert(app.blocklist_size() == 0);
@@ -376,7 +376,7 @@ int main() {
     assert(simulate_hook_event('D', WM_KEYDOWN) == 0);
     std::cout << "  - 12a success: block lifted automatically, device stays blocklisted\n";
 
-    // 12b: failed disconnect keeps input blocked until Reset
+    // 12b: a failed disconnect must not lock the user out of their keyboard
     SendMessageW(app.hwnd(), WM_COMMAND, MAKEWPARAM(badbt::IDC_BTN_RESET, 0), 0);
     fake_succeeds.store(false);
     int64_t shift5_ns = 140LL * 1'000'000'000LL;
@@ -392,15 +392,16 @@ int main() {
     pump_for(300); // let the failure outcome reach the UI thread
     assert(fake_calls.load() == 2);
     assert(app.total_disconnects() == 1);              // unchanged: this one failed
-    assert(app.is_blocking_active() == true);          // stays blocked
-    assert(app.current_status_string() == L"Blocked");
-    assert(simulate_hook_event('E', WM_KEYDOWN) == 1);
-    std::cout << "  - 12b failure: input stays blocked until Reset\n";
+    assert(app.is_blocking_active() == false);         // gate released even though it failed
+    assert(app.current_status_string() == L"Monitoring");
+    assert(simulate_hook_event('E', WM_KEYDOWN) == 0);
+    assert(app.blocklist_size() == 1);                 // device stays blocklisted for retry
+    std::cout << "  - 12b failure: input is NOT left blocked; device stays blocklisted\n";
 
     SendMessageW(app.hwnd(), WM_COMMAND, MAKEWPARAM(badbt::IDC_BTN_RESET, 0), 0);
     app.set_disconnect_on_detect(false);
     assert(app.is_blocking_active() == false);
-    std::cout << ">>> TEST 12 PASSED: Disconnect succeeds -> auto-unblock; fails -> blocked until Reset.\n";
+    std::cout << ">>> TEST 12 PASSED: Gate lifts after a successful AND after a failed disconnect.\n";
 
     // ─────────────────────────────────────────────────────────────────
     // TEST 11: Shutdown -> hook removed -> blocking false -> no dangling callback/state

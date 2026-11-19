@@ -1,5 +1,7 @@
 #include "tray_app.h"
 #include "notification.h"
+#include "log.h"
+#include "bt_address.h"
 #include "../../detector/include/path_utils.h"
 #include "../../capture/src/raw_input.h"
 #include "../../capture/src/device_info.h"
@@ -251,6 +253,9 @@ bool TrayApp::initialize() {
     //     blocklisted from a previous run, start in the blocked state immediately.
     blocklist_path_ = find_blocklist_path(config_.blocklist_path);
     blocklist_.load(blocklist_path_);
+    log_line(std::string("BadBT started: build ") + __DATE__ + " " + __TIME__
+             + ", disconnect_on_detect=" + (config_.disconnect_on_detect ? "1" : "0")
+             + ", blocklist entries=" + std::to_string(blocklist_.size()));
     if (!blocklist_.empty() && !config_.disconnect_on_detect) {
         // Legacy mode: a previously flagged device keeps the keyboard blocked until Reset.
         // In disconnect mode the device is already gone; if it reconnects and types, the
@@ -279,8 +284,18 @@ bool TrayApp::initialize() {
             // blocking. Enforcement stays global (the hook cannot act per-device), so
             // is_blocking_active_ is the authoritative lock-free gate; the blocklist is
             // the durable record of why input is blocked until the user hits Reset.
-            if (!res.primary_device_path.empty()) {
-                blocklist_.add(res.primary_device_path);
+            // Identify the device by its Bluetooth MAC when we can: unlike the Raw Input
+            // path, the MAC stays the same when the device re-pairs or reconnects.
+            std::string entry = res.primary_device_path;
+            if (config_.disconnect_on_detect && !entry.empty()) {
+                uint64_t mac = 0;
+                if (resolve_bt_address(entry, mac)) {
+                    entry = bt_address_key(mac);
+                }
+            }
+            log_line("ALERT: device path = " + res.primary_device_path + " -> blocklist entry " + entry);
+            if (!entry.empty()) {
+                blocklist_.add(entry);
                 blocklist_.save(blocklist_path_);
             }
             is_blocking_active_.store(true, std::memory_order_release);
@@ -510,6 +525,9 @@ void TrayApp::reset_blocklist() {
     blocklist_.save(blocklist_path_);
     disconnect_failed_.clear();
     needs_manual_reset_.store(false, std::memory_order_release);
+    if (hwnd_) {
+        KillTimer(hwnd_, DISCONNECT_GATE_TIMER_ID);
+    }
 
     if (hwnd_) {
         KillTimer(hwnd_, COOLDOWN_TIMER_ID); // harmless if not armed
@@ -587,7 +605,8 @@ bool TrayApp::standing_block_required() const {
     if (!config_.disconnect_on_detect) {
         return !blocklist_.empty();
     }
-    if (needs_manual_reset_.load(std::memory_order_acquire) || !disconnect_failed_.empty()) {
+    if (config_.keep_block_on_disconnect_failure
+        && (needs_manual_reset_.load(std::memory_order_acquire) || !disconnect_failed_.empty())) {
         return true;
     }
     std::lock_guard<std::mutex> lock(disconnect_mutex_);
@@ -605,9 +624,14 @@ void TrayApp::request_disconnect(const std::string& device_path) {
     }
 
     // Safety gate: keep injected keystrokes from reaching applications while we disconnect.
+    // The UI thread arms a watchdog timer so this can never outlive disconnect_gate_ms.
     is_blocking_active_.store(true, std::memory_order_release);
+    log_line("disconnect requested for " + device_path);
 
     HWND target = hwnd_;
+    if (target) {
+        PostMessageW(target, WM_DISCONNECT_STARTED, 0, 0);
+    }
     DisconnectFn fn = disconnect_fn_;
     disconnect_threads_.emplace_back([this, target, fn, device_path]() {
         DisconnectResult result;
@@ -630,10 +654,17 @@ void TrayApp::request_disconnect(const std::string& device_path) {
 }
 
 void TrayApp::on_disconnect_done(const DisconnectOutcome& outcome) {
+    bool none_inflight = false;
     {
         std::lock_guard<std::mutex> lock(disconnect_mutex_);
         disconnect_inflight_.erase(outcome.device_path);
+        none_inflight = disconnect_inflight_.empty();
     }
+    if (none_inflight && hwnd_) {
+        KillTimer(hwnd_, DISCONNECT_GATE_TIMER_ID);
+    }
+    log_line(std::string("disconnect outcome: ") + (outcome.result.success ? "success" : "FAILED")
+             + " - " + outcome.result.detail);
 
     if (outcome.result.success) {
         disconnect_failed_.erase(outcome.device_path);
@@ -660,11 +691,27 @@ void TrayApp::on_disconnect_done(const DisconnectOutcome& outcome) {
         show_notification(
             L"BadBT: Could Not Disconnect Device",
             L"Windows would not disconnect the suspicious device (" + detail
-                + L"). Keyboard input stays blocked - remove the device manually, then click Reset.",
+                + L"). Input is not blocked; BadBT will retry if it types again. Remove the "
+                  L"device manually. Details: %APPDATA%\\BadBT\\badbt.log",
             NIIF_ERROR
         );
     }
 
+    update_ui_state();
+}
+
+void TrayApp::on_disconnect_gate_timeout() {
+    if (!config_.disconnect_on_detect) {
+        return;
+    }
+    if (config_.keep_block_on_disconnect_failure
+        && (needs_manual_reset_.load(std::memory_order_acquire) || !disconnect_failed_.empty())) {
+        return;
+    }
+    if (is_blocking_active_.exchange(false, std::memory_order_acq_rel)) {
+        log_line("input block released by the watchdog while a disconnect was still running");
+    }
+    reset_capture_state_.store(true);
     update_ui_state();
 }
 
@@ -762,13 +809,14 @@ void TrayApp::run_capture_loop() {
     std::unordered_map<HANDLE, bool> bt_status_cache;
     std::unordered_map<uint64_t, bool> key_down_state;
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> last_enforced;
+    std::unordered_map<HANDLE, std::string> identity_cache; // device handle -> "bt:MAC" (or empty)
 
     auto key_state_id = [](HANDLE device, USHORT scan_code) -> uint64_t {
         return (static_cast<uint64_t>(reinterpret_cast<uintptr_t>(device)) << 16)
                ^ static_cast<uint64_t>(scan_code);
     };
 
-    KeyEventCallback callback = [this, &device_cache, &bt_status_cache, &key_down_state, &last_enforced, key_state_id](const RawKeyEvent& raw_event) {
+    KeyEventCallback callback = [this, &device_cache, &bt_status_cache, &key_down_state, &last_enforced, &identity_cache, key_state_id](const RawKeyEvent& raw_event) {
         if (!detection_enabled_.load()) {
             return;
         }
@@ -790,14 +838,30 @@ void TrayApp::run_capture_loop() {
         // disconnected again (rate limited) and never reaches the detector.
         if (config_.disconnect_on_detect && !blocklist_.empty()) {
             const std::string device_utf8 = wstring_to_utf8(it->second);
-            if (blocklist_.contains(device_utf8)) {
+
+            // Resolve the device's MAC once per Raw Input handle; a re-paired device gets a
+            // new handle and path but keeps its MAC, which is what the blocklist stores.
+            auto id_it = identity_cache.find(raw_event.device);
+            if (id_it == identity_cache.end()) {
+                std::string key;
+                uint64_t mac = 0;
+                if (resolve_bt_address(device_utf8, mac)) {
+                    key = bt_address_key(mac);
+                }
+                id_it = identity_cache.emplace(raw_event.device, key).first;
+            }
+            const std::string& mac_key = id_it->second;
+
+            if (blocklist_.contains(device_utf8) || (!mac_key.empty() && blocklist_.contains(mac_key))) {
+                const std::string& who = mac_key.empty() ? device_utf8 : mac_key;
                 const auto now = std::chrono::steady_clock::now();
-                auto found = last_enforced.find(device_utf8);
+                auto found = last_enforced.find(who);
                 if (found == last_enforced.end() || now - found->second > std::chrono::seconds(5)) {
-                    last_enforced[device_utf8] = now;
+                    last_enforced[who] = now;
+                    log_line("blocklisted device is typing again: " + who + " -> disconnecting");
                     request_disconnect(device_utf8);
                 }
-                return;
+                return; // never feed a blocklisted device to the detector
             }
         }
 
@@ -859,6 +923,12 @@ LRESULT CALLBACK TrayApp::wndproc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
 
     case WM_DETECTOR_ALERT:
         app->on_detector_alert();
+        return 0;
+
+    case WM_DISCONNECT_STARTED:
+        SetTimer(hwnd, DISCONNECT_GATE_TIMER_ID,
+                 static_cast<UINT>(app->config_.disconnect_gate_ms > 0 ? app->config_.disconnect_gate_ms : 4000),
+                 nullptr);
         return 0;
 
     case WM_DISCONNECT_DONE: {
@@ -930,6 +1000,10 @@ LRESULT CALLBACK TrayApp::wndproc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         if (wParam == TEST_NOTIF_TIMER_ID) {
             KillTimer(hwnd, TEST_NOTIF_TIMER_ID);
             PostMessageW(hwnd, WM_TEST_NOTIFICATION, 0, 0);
+            return 0;
+        } else if (wParam == DISCONNECT_GATE_TIMER_ID) {
+            KillTimer(hwnd, DISCONNECT_GATE_TIMER_ID);
+            app->on_disconnect_gate_timeout();
             return 0;
         } else if (wParam == AUTO_EXIT_TIMER_ID) {
             KillTimer(hwnd, AUTO_EXIT_TIMER_ID);

@@ -30,6 +30,7 @@ constexpr UINT WM_TRAYICON           = WM_APP + 1;
 constexpr UINT WM_DETECTOR_ALERT     = WM_APP + 2;
 constexpr UINT WM_TEST_NOTIFICATION  = WM_APP + 3;
 constexpr UINT WM_DISCONNECT_DONE    = WM_APP + 4; // lParam: heap-allocated DisconnectOutcome*
+constexpr UINT WM_DISCONNECT_STARTED = WM_APP + 5; // arms the input-gate watchdog timer
 
 // Menu & Control IDs
 constexpr UINT IDM_OPEN              = 1000;
@@ -53,6 +54,7 @@ constexpr UINT TRAY_ICON_UID         = 1;
 constexpr UINT_PTR AUTO_EXIT_TIMER_ID= 101;
 constexpr UINT_PTR TEST_NOTIF_TIMER_ID= 102;
 constexpr UINT_PTR COOLDOWN_TIMER_ID = 103;
+constexpr UINT_PTR DISCONNECT_GATE_TIMER_ID = 104;
 
 struct TrayConfig {
     bool        filter_bluetooth = true;
@@ -69,10 +71,13 @@ struct TrayConfig {
     std::string blocklist_path = "";          // Override persisted blocklist path (default: %APPDATA%\BadBT\blocklist.txt)
 
     // On detection, disconnect (and unpair) the offending Bluetooth device instead of
-    // leaving the whole keyboard blocked. Input is blocked only while the disconnect is in
-    // flight; if it fails, input stays blocked until Reset (the old, conservative behavior).
-    // Set false to get the legacy block-until-Reset behavior only.
+    // leaving the whole keyboard blocked. Input is blocked only briefly while the disconnect
+    // runs (at most disconnect_gate_ms). Set false for the legacy block-until-Reset behavior.
     bool        disconnect_on_detect = true;
+    int         disconnect_gate_ms = 4000;   // hard cap on the temporary input block
+    // If a disconnect fails, keep the whole keyboard blocked until Reset (old behavior).
+    // Default false: a failed disconnect must not lock the user out; it is retried instead.
+    bool        keep_block_on_disconnect_failure = false;
 };
 
 // Result of one background disconnect attempt, delivered to the UI thread.
@@ -151,6 +156,7 @@ private:
     // thread as WM_DISCONNECT_DONE.
     void request_disconnect(const std::string& device_path);
     void on_disconnect_done(const DisconnectOutcome& outcome);
+    void on_disconnect_gate_timeout();
     bool standing_block_required() const;
     void join_disconnect_threads();
     void show_notification(const std::wstring& title, const std::wstring& message, DWORD flags = NIIF_WARNING | NIIF_LARGE_ICON);

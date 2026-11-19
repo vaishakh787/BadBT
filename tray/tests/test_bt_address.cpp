@@ -54,6 +54,12 @@ int main() {
         "BTHLEDEVICE\\{00001812-0000-1000-8000-00805f9b34fb}_DEV_VID&02045e_PID&0b0e_REV&0001_C0FFEE123456\\8&abc&0&0001", a));
     CHECK(a == 0xC0FFEE123456ULL);
 
+    // MAC followed by '&' (HID collection suffix in the same instance ID).
+    a = 0;
+    CHECK(parse_bt_address(
+        "HID\\{00001812-0000-1000-8000-00805f9b34fb}_Dev_VID&02045e_PID&0b0e_REV&0001_AABBCCDDEEFF&Col01\\a&1&0&0000", a));
+    CHECK(a == 0xAABBCCDDEEFFULL);
+
     // GUID's last group is 12 hex but follows '-', so it must NOT be taken as an address.
     a = 0;
     CHECK(!parse_bt_address("HID\\{00001124-0000-1000-8000-00805f9b34fb}_VID&0002054c_PID&09cc\\9&2b1d3c2&0&0000", a));
@@ -70,6 +76,8 @@ int main() {
     CHECK(!parse_bt_address("BTHENUM\\DEV\\9&1&0&AABBCCDDEEFF0_C00000000", a));
 
     // ── Formatting ──
+    CHECK(bt_address_key(0xAABBCCDDEEFFULL) == "bt:AABBCCDDEEFF");
+    CHECK(bt_address_key(0x0000000000FFULL) == "bt:0000000000FF");
     CHECK(format_bt_address(0xAABBCCDDEEFFULL) == "AA:BB:CC:DD:EE:FF");
     CHECK(format_bt_address(0x0102030405FFULL) == "01:02:03:04:05:FF");
 

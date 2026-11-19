@@ -24,6 +24,10 @@ std::string raw_input_path_to_instance_id(const std::string& raw_path);
 // address is rejected.
 bool parse_bt_address(const std::string& instance_id, uint64_t& address);
 
+// Stable blocklist key for a device, "bt:AABBCCDDEEFF". Unlike the Raw Input device path
+// (which changes when a device re-pairs or reconnects) the MAC identifies the physical device.
+std::string bt_address_key(uint64_t address);
+
 // "AA:BB:CC:DD:EE:FF" form for logs/notifications.
 std::string format_bt_address(uint64_t address);
 

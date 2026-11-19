@@ -7,6 +7,8 @@ add_executable(badbt-tray
     src/blocklist.cpp
     src/bt_address.cpp
     src/bt_disconnect.cpp
+    src/bt_winrt.cpp
+    src/log.cpp
     "${CMAKE_SOURCE_DIR}/capture/src/raw_input.cpp"
 )
 
@@ -30,6 +32,7 @@ target_link_libraries(badbt-tray PRIVATE
     bthprops
     cfgmgr32
     ws2_32
+    windowsapp
     onnxruntime
 )
 
@@ -67,6 +70,8 @@ add_executable(test_tray_state
     src/blocklist.cpp
     src/bt_address.cpp
     src/bt_disconnect.cpp
+    src/bt_winrt.cpp
+    src/log.cpp
     "${CMAKE_SOURCE_DIR}/capture/src/raw_input.cpp"
 )
 
@@ -90,6 +95,7 @@ target_link_libraries(test_tray_state PRIVATE
     bthprops
     cfgmgr32
     ws2_32
+    windowsapp
     onnxruntime
 )
 
@@ -117,6 +123,11 @@ add_custom_command(TARGET test_tray_state POST_BUILD
         "${CMAKE_SOURCE_DIR}/model/rf_model.onnx"
         "$<TARGET_FILE_DIR:test_tray_state>/model/rf_model.onnx"
 )
+
+# C++/WinRT headers want standards-conforming mode.
+if(MSVC)
+    set_source_files_properties(src/bt_winrt.cpp PROPERTIES COMPILE_OPTIONS "/permissive-")
+endif()
 
 # ── Test: Blocklist (pure C++; portable, no ONNX/Win32 link) ──
 add_executable(test_blocklist

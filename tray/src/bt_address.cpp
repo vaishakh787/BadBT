@@ -49,7 +49,7 @@ bool parse_bt_address(const std::string& instance_id, uint64_t& address) {
         // excludes the last group of a GUID, which follows '-') and followed by '_', '\\'
         // or the end of the string.
         const bool left_ok = i > 0 && (instance_id[i - 1] == '&' || instance_id[i - 1] == '_');
-        const bool right_ok = j == n || instance_id[j] == '_' || instance_id[j] == '\\';
+        const bool right_ok = j == n || instance_id[j] == '_' || instance_id[j] == '\\' || instance_id[j] == '&';
 
         if (exact12 && left_ok && right_ok) {
             uint64_t value = 0;
@@ -68,6 +68,13 @@ bool parse_bt_address(const std::string& instance_id, uint64_t& address) {
         i = j;
     }
     return false;
+}
+
+std::string bt_address_key(uint64_t address) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "bt:%012llX",
+                  static_cast<unsigned long long>(address & 0xFFFFFFFFFFFFULL));
+    return buf;
 }
 
 std::string format_bt_address(uint64_t address) {
