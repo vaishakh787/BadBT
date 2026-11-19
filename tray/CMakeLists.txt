@@ -124,9 +124,10 @@ add_custom_command(TARGET test_tray_state POST_BUILD
         "$<TARGET_FILE_DIR:test_tray_state>/model/rf_model.onnx"
 )
 
-# C++/WinRT headers want standards-conforming mode.
+# C++/WinRT wants conforming mode, and under C++17 it falls back to the removed
+# <experimental/coroutine>; compile just this file as C++20 (its interface is plain std::string).
 if(MSVC)
-    set_source_files_properties(src/bt_winrt.cpp PROPERTIES COMPILE_OPTIONS "/permissive-")
+    set_source_files_properties(src/bt_winrt.cpp PROPERTIES COMPILE_OPTIONS "/permissive-;/std:c++20")
 endif()
 
 # ── Test: Blocklist (pure C++; portable, no ONNX/Win32 link) ──
