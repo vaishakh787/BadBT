@@ -150,7 +150,7 @@ DisconnectResult disconnect_bluetooth_device(const std::string& raw_input_path) 
         if (rm == ERROR_SUCCESS) removed = true;
 
         // ── Bluetooth LE (e.g. Flipper Zero as a BLE keyboard) ──
-        if (!removed && !hid_disabled) {
+        if (!removed) {
             std::string le_detail;
             le_unpaired = winrt_unpair_le_device(address, le_detail);
             log_line("disconnect: " + le_detail);
@@ -158,7 +158,9 @@ DisconnectResult disconnect_bluetooth_device(const std::string& raw_input_path) 
     }
 
     // ── Last resort: disable the HID devnode (administrator only) ──
-    if (!removed && !hid_disabled && !le_unpaired) {
+    // Only when a Bluetooth ancestor was positively identified (we found a MAC): never risk
+    // disabling a USB or built-in keyboard because of a false positive.
+    if (have_address && !removed && !hid_disabled && !le_unpaired) {
         const CONFIGRET cr = CM_Disable_DevNode(devnode, 0);
         log_line("disconnect: CM_Disable_DevNode -> CONFIGRET " + std::to_string(static_cast<unsigned long>(cr)));
         if (cr == CR_SUCCESS) devnode_disabled = true;

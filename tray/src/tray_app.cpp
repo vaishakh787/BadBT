@@ -304,8 +304,12 @@ bool TrayApp::initialize() {
                 // that finishes (or until Reset if it fails).
                 request_disconnect(res.primary_device_path);
             } else {
-                // Nothing per-device we can act on: fall back to block-until-Reset.
+                // Nothing per-device we can act on. Legacy mode blocks until Reset; in disconnect
+                // mode the watchdog still releases the gate after disconnect_gate_ms.
                 needs_manual_reset_.store(true, std::memory_order_release);
+                if (config_.disconnect_on_detect && hwnd_) {
+                    PostMessageW(hwnd_, WM_DISCONNECT_STARTED, 0, 0);
+                }
             }
             total_alerts_++;
             if (hwnd_) {
@@ -601,7 +605,7 @@ void TrayApp::on_detector_alert() {
     }
 }
 
-bool TrayApp::standing_block_required() const {
+bool TrayApp::standing_block_required_locked() const {
     if (!config_.disconnect_on_detect) {
         return !blocklist_.empty();
     }
@@ -609,8 +613,20 @@ bool TrayApp::standing_block_required() const {
         && (needs_manual_reset_.load(std::memory_order_acquire) || !disconnect_failed_.empty())) {
         return true;
     }
-    std::lock_guard<std::mutex> lock(disconnect_mutex_);
     return !disconnect_inflight_.empty();
+}
+
+bool TrayApp::standing_block_required() const {
+    std::lock_guard<std::mutex> lock(disconnect_mutex_);
+    return standing_block_required_locked();
+}
+
+// Raise the temporary input block and make sure the UI thread arms its watchdog timer.
+// Safe to call from any thread, and cheap when the block is already up.
+void TrayApp::engage_gate() {
+    if (!is_blocking_active_.exchange(true, std::memory_order_acq_rel) && hwnd_) {
+        PostMessageW(hwnd_, WM_DISCONNECT_STARTED, 0, 0);
+    }
 }
 
 void TrayApp::request_disconnect(const std::string& device_path) {
@@ -618,22 +634,40 @@ void TrayApp::request_disconnect(const std::string& device_path) {
         return;
     }
 
+    const auto now = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> lock(disconnect_mutex_);
-    if (!disconnect_inflight_.insert(device_path).second) {
-        return; // a disconnect for this device is already running
+
+    auto existing = disconnect_inflight_.find(device_path);
+    if (existing != disconnect_inflight_.end()) {
+        if (now - existing->second < std::chrono::seconds(10)) {
+            return; // a disconnect for this device is already running
+        }
+        log_line("previous disconnect for " + device_path + " looks hung; starting a new attempt");
     }
+    disconnect_inflight_[device_path] = now;
 
     // Safety gate: keep injected keystrokes from reaching applications while we disconnect.
-    // The UI thread arms a watchdog timer so this can never outlive disconnect_gate_ms.
-    is_blocking_active_.store(true, std::memory_order_release);
+    // Raised under the lock so the UI thread cannot lift it in between (see on_disconnect_done).
+    engage_gate();
     log_line("disconnect requested for " + device_path);
 
-    HWND target = hwnd_;
-    if (target) {
-        PostMessageW(target, WM_DISCONNECT_STARTED, 0, 0);
+    // Reap workers that already finished so the list does not grow without bound.
+    for (auto w = disconnect_workers_.begin(); w != disconnect_workers_.end();) {
+        if (w->done && w->done->load(std::memory_order_acquire)) {
+            if (w->thread.joinable()) w->thread.join();
+            w = disconnect_workers_.erase(w);
+        } else {
+            ++w;
+        }
     }
+
+    HWND target = hwnd_;
     DisconnectFn fn = disconnect_fn_;
-    disconnect_threads_.emplace_back([this, target, fn, device_path]() {
+    auto done = std::make_shared<std::atomic<bool>>(false);
+
+    DisconnectWorker worker;
+    worker.done = done;
+    worker.thread = std::thread([this, target, fn, device_path, done]() {
         DisconnectResult result;
         try {
             result = fn(device_path);
@@ -650,22 +684,12 @@ void TrayApp::request_disconnect(const std::string& device_path) {
             std::lock_guard<std::mutex> guard(disconnect_mutex_);
             disconnect_inflight_.erase(device_path);
         }
+        done->store(true, std::memory_order_release);
     });
+    disconnect_workers_.push_back(std::move(worker));
 }
 
 void TrayApp::on_disconnect_done(const DisconnectOutcome& outcome) {
-    bool none_inflight = false;
-    {
-        std::lock_guard<std::mutex> lock(disconnect_mutex_);
-        disconnect_inflight_.erase(outcome.device_path);
-        none_inflight = disconnect_inflight_.empty();
-    }
-    if (none_inflight && hwnd_) {
-        KillTimer(hwnd_, DISCONNECT_GATE_TIMER_ID);
-    }
-    log_line(std::string("disconnect outcome: ") + (outcome.result.success ? "success" : "FAILED")
-             + " - " + outcome.result.detail);
-
     if (outcome.result.success) {
         disconnect_failed_.erase(outcome.device_path);
         total_disconnects_++;
@@ -673,11 +697,27 @@ void TrayApp::on_disconnect_done(const DisconnectOutcome& outcome) {
         disconnect_failed_.insert(outcome.device_path);
     }
 
-    // Lift the temporary block once nothing is pending or unresolved.
-    if (!standing_block_required()) {
-        is_blocking_active_.store(false, std::memory_order_release);
+    // Decide and lift under the same lock that request_disconnect() raises the gate under,
+    // so a new request cannot slip in between the check and the store.
+    bool none_inflight = false;
+    bool lifted = false;
+    {
+        std::lock_guard<std::mutex> lock(disconnect_mutex_);
+        disconnect_inflight_.erase(outcome.device_path);
+        none_inflight = disconnect_inflight_.empty();
+        if (!standing_block_required_locked()) {
+            is_blocking_active_.store(false, std::memory_order_release);
+            lifted = true;
+        }
+    }
+    if (lifted) {
         reset_capture_state_.store(true);
     }
+    if (none_inflight && hwnd_) {
+        KillTimer(hwnd_, DISCONNECT_GATE_TIMER_ID);
+    }
+    log_line(std::string("disconnect outcome: ") + (outcome.result.success ? "success" : "FAILED")
+             + " - " + outcome.result.detail);
 
     const std::wstring detail = utf8_to_wstring(outcome.result.detail);
     if (outcome.result.success) {
@@ -704,25 +744,30 @@ void TrayApp::on_disconnect_gate_timeout() {
     if (!config_.disconnect_on_detect) {
         return;
     }
-    if (config_.keep_block_on_disconnect_failure
-        && (needs_manual_reset_.load(std::memory_order_acquire) || !disconnect_failed_.empty())) {
-        return;
+    bool released = false;
+    {
+        std::lock_guard<std::mutex> lock(disconnect_mutex_);
+        const bool keep = config_.keep_block_on_disconnect_failure
+            && (needs_manual_reset_.load(std::memory_order_acquire) || !disconnect_failed_.empty());
+        if (!keep) {
+            released = is_blocking_active_.exchange(false, std::memory_order_acq_rel);
+        }
     }
-    if (is_blocking_active_.exchange(false, std::memory_order_acq_rel)) {
-        log_line("input block released by the watchdog while a disconnect was still running");
+    if (released) {
+        log_line("input block released by the watchdog (disconnect still running or finished)");
     }
     reset_capture_state_.store(true);
     update_ui_state();
 }
 
 void TrayApp::join_disconnect_threads() {
-    std::vector<std::thread> threads;
+    std::vector<DisconnectWorker> workers;
     {
         std::lock_guard<std::mutex> lock(disconnect_mutex_);
-        threads.swap(disconnect_threads_);
+        workers.swap(disconnect_workers_);
     }
-    for (auto& t : threads) {
-        if (t.joinable()) t.join();
+    for (auto& w : workers) {
+        if (w.thread.joinable()) w.thread.join();
     }
 }
 
@@ -809,7 +854,8 @@ void TrayApp::run_capture_loop() {
     std::unordered_map<HANDLE, bool> bt_status_cache;
     std::unordered_map<uint64_t, bool> key_down_state;
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> last_enforced;
-    std::unordered_map<HANDLE, std::string> identity_cache; // device handle -> "bt:MAC" (or empty)
+    struct Identity { std::string key; std::chrono::steady_clock::time_point resolved_at; };
+    std::unordered_map<HANDLE, Identity> identity_cache; // device handle -> "bt:MAC" (empty if unresolved)
 
     auto key_state_id = [](HANDLE device, USHORT scan_code) -> uint64_t {
         return (static_cast<uint64_t>(reinterpret_cast<uintptr_t>(device)) << 16)
@@ -841,19 +887,28 @@ void TrayApp::run_capture_loop() {
 
             // Resolve the device's MAC once per Raw Input handle; a re-paired device gets a
             // new handle and path but keeps its MAC, which is what the blocklist stores.
+            // A failed lookup (devnode still enumerating, etc.) is retried after 3 seconds.
+            const auto resolve_now = std::chrono::steady_clock::now();
             auto id_it = identity_cache.find(raw_event.device);
-            if (id_it == identity_cache.end()) {
-                std::string key;
+            if (id_it == identity_cache.end()
+                || (id_it->second.key.empty()
+                    && resolve_now - id_it->second.resolved_at > std::chrono::seconds(3))) {
+                Identity ident;
                 uint64_t mac = 0;
                 if (resolve_bt_address(device_utf8, mac)) {
-                    key = bt_address_key(mac);
+                    ident.key = bt_address_key(mac);
                 }
-                id_it = identity_cache.emplace(raw_event.device, key).first;
+                ident.resolved_at = resolve_now;
+                identity_cache[raw_event.device] = ident;
+                id_it = identity_cache.find(raw_event.device);
             }
-            const std::string& mac_key = id_it->second;
+            const std::string& mac_key = id_it->second.key;
 
             if (blocklist_.contains(device_utf8) || (!mac_key.empty() && blocklist_.contains(mac_key))) {
                 const std::string& who = mac_key.empty() ? device_utf8 : mac_key;
+                // Keep the temporary gate up for as long as the blocklisted device keeps typing
+                // (bounded: the watchdog releases it disconnect_gate_ms after the last re-arm).
+                engage_gate();
                 const auto now = std::chrono::steady_clock::now();
                 auto found = last_enforced.find(who);
                 if (found == last_enforced.end() || now - found->second > std::chrono::seconds(5)) {

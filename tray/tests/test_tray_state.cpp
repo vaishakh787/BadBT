@@ -1,3 +1,5 @@
+// These tests rely on assert(); keep them active even in Release builds (which define NDEBUG).
+#undef NDEBUG
 #include <iostream>
 #include <vector>
 #include <fstream>
@@ -334,8 +336,9 @@ int main() {
 
     std::atomic<int>  fake_calls{0};
     std::atomic<bool> fake_succeeds{true};
+    std::atomic<int>  fake_sleep_ms{100};
     app.set_disconnect_fn([&](const std::string&) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(fake_sleep_ms.load()));
         badbt::DisconnectResult r;
         r.success = fake_succeeds.load();
         r.detail = r.success ? "fake disconnect ok" : "fake disconnect refused";
@@ -386,6 +389,7 @@ int main() {
         ev.timestamp_ns += t_offset5;
         app.detector()->process_event(ev);
     }
+    assert(app.is_blocking_active() == true);          // gate is up while the disconnect runs
     for (int i = 0; i < 300 && fake_calls.load() < 2; ++i) {
         pump_for(10);
     }
@@ -398,10 +402,38 @@ int main() {
     assert(app.blocklist_size() == 1);                 // device stays blocklisted for retry
     std::cout << "  - 12b failure: input is NOT left blocked; device stays blocklisted\n";
 
+    // 12c: a HUNG disconnect must not keep the keyboard blocked past the watchdog, and the
+    //      device must still be serviced afterwards
+    SendMessageW(app.hwnd(), WM_COMMAND, MAKEWPARAM(badbt::IDC_BTN_RESET, 0), 0);
+    fake_succeeds.store(true);
+    fake_sleep_ms.store(1500);
+    app.set_disconnect_gate_ms(300);
+    const size_t disconnects_before_12c = app.total_disconnects();
+    int64_t shift6_ns = 175LL * 1'000'000'000LL;
+    int64_t t_offset6 = (inj_events.back().timestamp_ns + shift6_ns) - inj_events.front().timestamp_ns;
+    for (size_t i = 0; i < inj_events.size(); ++i) {
+        badbt::InputEvent ev = inj_events[i];
+        ev.timestamp_ns += t_offset6;
+        app.detector()->process_event(ev);
+    }
+    assert(app.is_blocking_active() == true);
+    pump_for(900);                                      // watchdog (300ms) fires, fake (1500ms) still running
+    assert(fake_calls.load() == 2);                     // the slow disconnect has not finished
+    assert(app.is_blocking_active() == false);          // ...but the keyboard is already free
+    assert(simulate_hook_event('F', WM_KEYDOWN) == 0);
+    for (int i = 0; i < 300 && app.total_disconnects() == disconnects_before_12c; ++i) {
+        pump_for(10);
+    }
+    assert(app.total_disconnects() == disconnects_before_12c + 1); // it still completed
+    assert(app.is_blocking_active() == false);
+    fake_sleep_ms.store(100);
+    app.set_disconnect_gate_ms(4000);
+    std::cout << "  - 12c hung disconnect: watchdog freed the keyboard, attempt still completed\n";
+
     SendMessageW(app.hwnd(), WM_COMMAND, MAKEWPARAM(badbt::IDC_BTN_RESET, 0), 0);
     app.set_disconnect_on_detect(false);
     assert(app.is_blocking_active() == false);
-    std::cout << ">>> TEST 12 PASSED: Gate lifts after a successful AND after a failed disconnect.\n";
+    std::cout << ">>> TEST 12 PASSED: Gate lifts after a successful, a failed, and a hung disconnect.\n";
 
     // ─────────────────────────────────────────────────────────────────
     // TEST 11: Shutdown -> hook removed -> blocking false -> no dangling callback/state

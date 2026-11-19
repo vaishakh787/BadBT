@@ -15,7 +15,7 @@ std::string log_file_path() {
 void log_line(const std::string& message) {
     static std::mutex mutex;
     static size_t bytes_written = 0;
-    constexpr size_t kMaxBytesPerRun = 1024 * 1024; // never let a noisy run fill the disk
+    constexpr size_t kMaxBytesPerRun = 4 * 1024 * 1024; // never let a noisy run fill the disk
 
     std::lock_guard<std::mutex> lock(mutex);
     if (bytes_written > kMaxBytesPerRun) {

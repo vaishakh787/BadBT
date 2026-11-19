@@ -18,6 +18,8 @@
 #include <functional>
 #include <mutex>
 #include <set>
+#include <map>
+#include <chrono>
 #include <vector>
 #include "../../detector/include/detector.h"
 #include "blocklist.h"
@@ -116,6 +118,7 @@ public:
     using DisconnectFn = std::function<DisconnectResult(const std::string&)>;
     void set_disconnect_fn(DisconnectFn fn) { disconnect_fn_ = std::move(fn); }
     void set_disconnect_on_detect(bool enabled) { config_.disconnect_on_detect = enabled; }
+    void set_disconnect_gate_ms(int ms) { config_.disconnect_gate_ms = ms; }
 
     // Show or restore main window
     void show_main_window();
@@ -157,6 +160,8 @@ private:
     void request_disconnect(const std::string& device_path);
     void on_disconnect_done(const DisconnectOutcome& outcome);
     void on_disconnect_gate_timeout();
+    void engage_gate();
+    bool standing_block_required_locked() const; // caller holds disconnect_mutex_
     bool standing_block_required() const;
     void join_disconnect_threads();
     void show_notification(const std::wstring& title, const std::wstring& message, DWORD flags = NIIF_WARNING | NIIF_LARGE_ICON);
@@ -213,9 +218,14 @@ private:
 
     // Disconnect-on-detect bookkeeping.
     DisconnectFn disconnect_fn_ = [](const std::string& p) { return disconnect_bluetooth_device(p); };
+    struct DisconnectWorker {
+        std::thread                         thread;
+        std::shared_ptr<std::atomic<bool>>  done;
+    };
     mutable std::mutex        disconnect_mutex_;     // guards the next two members
-    std::set<std::string>     disconnect_inflight_;  // devices with a disconnect running
-    std::vector<std::thread>  disconnect_threads_;
+    // device path -> when its disconnect started; an entry older than 10s is treated as hung
+    std::map<std::string, std::chrono::steady_clock::time_point> disconnect_inflight_;
+    std::vector<DisconnectWorker> disconnect_workers_;
     std::set<std::string>     disconnect_failed_;    // UI thread only: devices we could not disconnect
     std::atomic<bool>         needs_manual_reset_{false}; // an alert we could not act on per-device
 
