@@ -50,6 +50,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $dirs = @{
             'build/tray/Release/test_blocklist.exe'            = 'build/tray/test_blocklist.exe'
+            'build/tray/Release/test_bt_address.exe'           = 'build/tray/test_bt_address.exe'
             'build/detector/Release/test_config_loader.exe'    = 'build/detector/test_config_loader.exe'
             'build/detector/Release/test_feature_parity.exe'   = 'build/detector/test_feature_parity.exe'
             'build/detector/Release/test_onnx_inference.exe'   = 'build/detector/test_onnx_inference.exe'
@@ -68,8 +69,8 @@ jobs:
           foreach ($t in 'tray','detector') {
             if (Test-Path "build/$t/Release") { Copy-Item "build/$t/Release/*" "build/$t/" -Recurse -Force }
           }
-          $v = '${{ steps.ver.outputs.version }}' -replace '-.*$',''
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$v" "/F`"BadBT-${{ steps.ver.outputs.version }}-Setup`"" installer/badbt_setup.iss
+          $v = '${{ steps.ver.outputs.version }}'
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$v" installer/badbt_setup.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
           Get-FileHash dist/BadBT-${{ steps.ver.outputs.version }}-Setup.exe -Algorithm SHA256 | Format-List
 
