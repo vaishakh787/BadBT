@@ -40,6 +40,7 @@ hardcoded relative paths (e.g. `data/raw/adhi_01.jsonl`) resolve:
 ```powershell
 & "build/tray/test_tray_state.exe"          # hook lifecycle, block-until-Reset, blocklist, toggle bypass
 & "build/tray/test_blocklist.exe"           # Blocklist add/dedup/clear + save/load round-trip (portable)
+& "build/tray/test_bt_address.exe"          # Raw Input path -> instance ID -> Bluetooth MAC parsing (portable)
 & "build/detector/test_config_loader.exe"   # service.toml parsing + key precedence
 & "build/detector/test_onnx_inference.exe"  # ONNX inference + JSONL replay regression
 & "build/detector/test_feature_parity.exe"  # see "Feature parity" below
@@ -100,6 +101,17 @@ sessions are named by subject (`adhi_*`, `vik*`, etc.); injection samples are `i
   blocklist is reloaded on startup, so a device stays blocked across restarts until Reset. The
   detector's own `Cooldown` state still exists internally but no longer drives the UI (status reads
   `Monitoring` / `Blocked` / `Disabled`).
+- **Disconnect-on-detect** (`tray/src/bt_disconnect.cpp`, `bt_winrt.cpp`, `bt_address.cpp`, `log.cpp`;
+  `TrayConfig::disconnect_on_detect`, default on): on detection the device is identified by its **Bluetooth MAC**
+  (blocklist entry `bt:AABBCCDDEEFF`; the Raw Input path changes on re-pair) and disconnected on a worker thread:
+  classic = per-radio `BluetoothSetServiceState(HID, DISABLE)` + `BluetoothRemoveDevice(MAC)`; **LE (e.g. Flipper)
+  = WinRT `UnpairAsync`** (the Win32 APIs do not see LE-only devices); last resort `CM_Disable_DevNode` (admin).
+  Input is blocked only while that runs, capped at `disconnect_gate_ms` (4s watchdog timer on the UI thread); a
+  failed disconnect does **not** keep the keyboard blocked (`keep_block_on_disconnect_failure=false`), it is retried.
+  A blocklisted MAC that types again is disconnected again (capture thread, 5s rate limit) and never reaches the
+  detector. Every step is logged to `%APPDATA%\BadBT\badbt.log` -- read it first when a disconnect misbehaves.
+  `disconnect_on_detect=false` restores legacy block-until-Reset. Address parsing is pure C++ (`test_bt_address`,
+  builds with clang++ on macOS); the Windows Bluetooth/WinRT calls are untested off-device.
 - **`service/`** is scaffolding only; it is commented out in the top-level `CMakeLists.txt` and not built.
 
 ## Model artifacts — stale-data caution
